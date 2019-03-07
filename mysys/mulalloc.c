@@ -74,13 +74,16 @@ void* my_multi_malloc(myf myFlags, ...)
 	ptr2, length2      ...
         ...
 	NULL
+        ptr_total          ulonglong pointer that gets the size allocated
 */
 
 void *my_multi_malloc_large(myf myFlags, ...)
 {
   va_list args;
   char **ptr,*start,*res;
-  ulonglong tot_length,length;
+  size_t tot_length;
+  ulonglong length;
+  ulonglong *ret_total_length;
   DBUG_ENTER("my_multi_malloc");
 
   va_start(args,myFlags);
@@ -92,7 +95,7 @@ void *my_multi_malloc_large(myf myFlags, ...)
   }
   va_end(args);
 
-  if (!(start=(char *) my_malloc((size_t) tot_length, myFlags)))
+  if (!(start=(char *) my_large_malloc(&tot_length, myFlags)))
     DBUG_RETURN(0); /* purecov: inspected */
 
   va_start(args,myFlags);
@@ -103,6 +106,8 @@ void *my_multi_malloc_large(myf myFlags, ...)
     length=va_arg(args,ulonglong);
     res+=ALIGN_SIZE(length);
   }
+  ret_total_length= va_arg(args, ulonglong *);
+  *ret_total_length= tot_length;
   va_end(args);
   DBUG_RETURN((void*) start);
 }

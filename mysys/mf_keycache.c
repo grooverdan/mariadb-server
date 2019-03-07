@@ -183,6 +183,7 @@ typedef struct st_simple_key_cache_cb
   HASH_LINK *free_hash_list;     /* list of free hash links                  */
   BLOCK_LINK *free_block_list;   /* list of free blocks                      */
   BLOCK_LINK *block_root;        /* memory for block links                   */
+  ulonglong block_root_size;     /* size of the memory allocated at block_root */
   uchar *block_mem;              /* memory for block buffers                 */
   BLOCK_LINK *used_last;         /* ptr to the last block of the LRU chain   */
   BLOCK_LINK *used_ins;          /* ptr to the insertion block in LRU chain  */
@@ -559,7 +560,7 @@ int init_simple_key_cache(SIMPLE_KEY_CACHE_CB *keycache,
       {
         keycache->allocated_mem_size= blocks * keycache->key_cache_block_size;
       }
-      if ((keycache->block_mem=my_large_malloc(keycache->allocated_mem_size, MYF(0))))
+      if ((keycache->block_mem=my_large_malloc(&keycache->allocated_mem_size, MYF(0))))
       {
         /*
 	  Allocate memory for blocks, hash_links and hash entries;
@@ -579,9 +580,10 @@ int init_simple_key_cache(SIMPLE_KEY_CACHE_CB *keycache,
                                   &keycache->file_blocks,
                                   (ulonglong) (sizeof(BLOCK_LINK*) *
                                                changed_blocks_hash_size),
-                                  NullS))
+                                  NullS,
+                                  &keycache->block_root_size))
           break;
-        my_large_free(keycache->block_mem);
+        my_large_free(keycache->block_mem, keycache->allocated_mem_size);
         keycache->block_mem= 0;
       }
       if (blocks < 8)
@@ -642,12 +644,12 @@ err:
   keycache->blocks=  0;
   if (keycache->block_mem)
   {
-    my_large_free((uchar*) keycache->block_mem);
+    my_large_free((uchar*) keycache->block_mem, keycache->allocated_mem_size);
     keycache->block_mem= NULL;
   }
   if (keycache->block_root)
   {
-    my_free(keycache->block_root);
+    my_large_free(keycache->block_root, keycache->block_root_size);
     keycache->block_root= NULL;
   }
   my_errno= error;
@@ -976,9 +978,9 @@ void end_simple_key_cache(SIMPLE_KEY_CACHE_CB *keycache, my_bool cleanup)
   {
     if (keycache->block_mem)
     {
-      my_large_free((uchar*) keycache->block_mem);
+      my_large_free((uchar*) keycache->block_mem, keycache->allocated_mem_size);
       keycache->block_mem= NULL;
-      my_free(keycache->block_root);
+      my_large_free(keycache->block_root, keycache->block_root_size);
       keycache->block_root= NULL;
     }
     keycache->disk_blocks= -1;

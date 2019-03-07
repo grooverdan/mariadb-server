@@ -180,13 +180,13 @@ extern char *my_strndup(const char *from, size_t length, myf MyFlags);
 #ifdef HAVE_LINUX_LARGE_PAGES
 extern void my_get_large_page_sizes(size_t sizes[]);
 extern size_t my_next_large_page_size(size_t sz, int *start);
-extern uchar * my_large_malloc(size_t size, myf my_flags);
-extern void my_large_free(uchar *ptr);
+extern uchar * my_large_malloc(size_t *size, myf my_flags);
+extern void my_large_free(void *ptr, size_t size);
 #else
 #define my_get_large_page_sizes() (0)
 #define my_next_large_page_size(A,B) (0)
-#define my_large_malloc(A,B) my_malloc_lock((A),(B))
-#define my_large_free(A) my_free_lock((A))
+#define my_large_malloc(A,B) my_malloc_lock(*(A),(B))
+#define my_large_free(A, B) my_free_lock((A))
 #endif /* HAVE_LINUX_LARGE_PAGES */
 
 void my_init_atomic_write(void);
