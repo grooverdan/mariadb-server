@@ -1,5 +1,9 @@
 version: build-{build}~branch-{branch}
 
+shallow_clone: true
+
+clone_depth: 5
+
 before_build:
   - md %APPVEYOR_BUILD_FOLDER%\win_build
   - cd %APPVEYOR_BUILD_FOLDER%\win_build
