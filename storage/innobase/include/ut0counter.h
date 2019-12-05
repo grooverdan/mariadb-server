@@ -104,6 +104,36 @@ struct ib_counter_t {
 		return(total);
 	}
 
+	ib_counter_t& operator++() { inc(); return *this; }
+
+	ib_counter_t& operator++(int) { inc(); return *this; }
+
+	ib_counter_t& operator+=(const ib_counter_t& other) {
+		if (this != &other) {
+			Type	total = 0;
+			for (const auto &counter : other.m_counter) {
+				total += counter.value.load(std::memory_order_acquire);
+			}
+			m_counter[0].value.fetch_add(total);
+		}
+		return *this;
+	}
+
+	ib_counter_t& operator =(const ib_counter_t& other) {
+		if (this != &other) {
+			Type	total = 0;
+
+			for (const auto &counter : other.m_counter) {
+				total += counter.value.load(std::memory_order_acquire);
+			}
+			for (auto &counter : m_counter) {
+				counter.value.store(0);
+			}
+			m_counter[0].value.store(total);
+		}
+		return *this;
+	}
+
 private:
 	/** Atomic which occupies whole CPU cache line.
 	Note: We rely on the default constructor of std::atomic and

@@ -1078,7 +1078,7 @@ got_no_latch:
 #endif
 	/* Increment the page get statistics though we did not really
 	fix the page: for user info only */
-	++buf_pool->stat.n_page_gets;
+	buf_pool->stat.n_page_gets++;
 
 	if (!ahi_latch) {
 		buf_page_make_young_if_needed(buf_pool, &block->page);

@@ -40,6 +40,7 @@ Created 11/5/1995 Heikki Tuuri
 #include "ut0rbt.h"
 #include "os0proc.h"
 #include "log0log.h"
+#include "ut0counter.h"
 #include "srv0srv.h"
 #include <ostream>
 
@@ -1967,7 +1968,7 @@ struct buf_buddy_free_t {
 
 /** @brief The buffer pool statistics structure. */
 struct buf_pool_stat_t{
-	ulint	n_page_gets;	/*!< number of page gets performed;
+	ib_counter_t<ulint, IB_N_SLOTS>	n_page_gets;	/*!< number of page gets performed;
 				also successful searches through
 				the adaptive hash index are
 				counted as page gets; this field
