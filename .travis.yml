@@ -10,8 +10,6 @@ git:
 language: cpp
 os:
   - linux
-  - osx
-osx_image: xcode10.1
 compiler:
   - gcc
   - clang
@@ -151,13 +149,51 @@ addons:
       - liblzma-dev
       - libzmq-dev
       - uuid-dev
+      # libsystemd-daemon-dev # https://github.com/travis-ci/apt-package-whitelist/issues/3882
+  homebrew:
+    # Temporary workaround, remove when this is solved:
+    # https://travis-ci.community/t/macos-build-fails-because-of-homebrew-bundle-unknown-command/7296/20
+    update: true
+    # OSX builds are not properly maintained on Travis-CI nor buildbot and
+    # thus this list of dependencies is likely to be inaccurate.
+    packages:
+      - bison
+      - boost
+      - ccache
+      - cmake
+      - cracklib
+      - curl
+      - gnutls
+      - groonga
+      - jemalloc
+      - libxml2
+      - lz4
+      - lzo
+      - ncurses
+      - openssl@1.1
+      - ossp-uuid
+      - pcre2
+      - perl
+      - pkg-config
+      - readline
+      - snappy
+      - xz
+      - zlib
+      - zstd
 
-# libsystemd-daemon-dev # https://github.com/travis-ci/apt-package-whitelist/issues/3882
+# The jobs matrix consists of all the combinations of 'arch', 'os', 'compiler' and 'env'
+arch:
+  - amd64
+os:
+  - linux
+  - osx
+osx_image: xcode12u
+compiler:
+  - gcc
+  - clang
 
 before_install:
   - if [[ "${TRAVIS_OS_NAME}" == 'osx' ]]; then
-      brew update;
-      brew install gnutls lz4 lzo xz snappy ccache jemalloc curl ossp-uuid pcre zstd;
       brew link ccache;
       export PATH="/usr/local/opt/ccache/libexec:$PATH";
     fi
