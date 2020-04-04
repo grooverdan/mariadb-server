@@ -52,9 +52,15 @@ static char pam_debug = 0;
 #define PAM_DEBUG(X)   /* no-op */
 #endif
 
+#if defined(SOLARIS) || defined(__sun)
+#define PAM_CONST
+#else
+#define PAM_CONST const
+#endif
+
 static char winbind_hack = 0;
 
-static int conv(int n, const struct pam_message **msg,
+static int conv(int n, PAM_CONST struct pam_message **msg,
                 struct pam_response **resp, void *data)
 {
   struct param *param = (struct param *)data;

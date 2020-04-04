@@ -67,6 +67,12 @@ pam_syslog (const pam_handle_t *pamh, int priority,
 #define skip(what) while (*s && (what)) s++
 #define SYSLOG_DEBUG if (mode_debug) pam_syslog
 
+#if defined(SOLARIS) || defined(__sun)
+#define PAM_ITEM_ARG_TYPE (void**)
+#else
+#define PAM_ITEM_ARG_TYPE (const void**)
+#endif
+
 #define GROUP_BUFFER_SIZE 100
 static const char debug_keyword[]= "debug";
 
@@ -83,6 +89,18 @@ static int populate_user_groups(const char *user, gid_t **groups)
     user_group_id= pw->pw_gid;
   }
 
+#if defined(SOLARIS) || defined(__sun)
+  if (initgroups(user, user_group_id))
+  {
+    return 0;
+  }
+  ng= getgroups(GROUP_BUFFER_SIZE, loc_groups);
+  if (ng == -1)
+  {
+    return 0;
+  }
+#else
+
   ng= GROUP_BUFFER_SIZE;
   if (getgrouplist(user, user_group_id, loc_groups, &ng) < 0)
   {
@@ -95,6 +113,7 @@ static int populate_user_groups(const char *user, gid_t **groups)
     (void) getgrouplist(user, user_group_id, loc_groups, &ng);
     *groups= loc_groups;
   }
+#endif
 
   return ng;
 }
@@ -177,7 +196,7 @@ int pam_sm_authenticate(pam_handle_t *pamh, int flags,
     return PAM_SYSTEM_ERR;
   }
 
-  pam_err = pam_get_item(pamh, PAM_USER, (const void**)&username);
+  pam_err = pam_get_item(pamh, PAM_USER, PAM_ITEM_ARG_TYPE &username);
   if (pam_err != PAM_SUCCESS)
   {
     pam_syslog(pamh, LOG_ERR, "Cannot get username.\n");
