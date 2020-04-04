@@ -534,6 +534,8 @@ typedef int	my_socket;	/* File descriptor for sockets */
 C_MODE_START
 #ifdef HAVE_SIGHANDLER_T
 #define sig_return sighandler_t
+#elif defined(SOLARIS) || defined(__sun)
+typedef void (*sig_return)(int); /* Returns type from signal */
 #else
 typedef void (*sig_return)(void); /* Returns type from signal */
 #endif
