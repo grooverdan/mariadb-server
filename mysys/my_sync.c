@@ -133,7 +133,9 @@ int my_sync(File fd, myf my_flags)
 } /* my_sync */
 
 
+#ifdef NEED_EXPLICIT_SYNC_DIR
 static const char cur_dir_name[]= {FN_CURLIB, 0};
+#endif
 
 /*
   Force directory information to disk.
