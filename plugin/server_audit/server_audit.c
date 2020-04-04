@@ -2259,6 +2259,7 @@ static void auditing_v13(MYSQL_THD thd, unsigned int *ev_v0)
 
 int get_db_mysql57(MYSQL_THD thd, char **name, int *len)
 {
+#ifdef __linux__
   int db_off;
   int db_len_off;
   if (debug_server_started)
@@ -2282,7 +2283,6 @@ int get_db_mysql57(MYSQL_THD thd, char **name, int *len)
 #endif /*x86_64*/
   }
 
-#ifdef __linux__
   *name= *(char **) (((char *) thd) + db_off);
   *len= *((int *) (((char*) thd) + db_len_off));
   if (*name && (*name)[*len] != 0)
