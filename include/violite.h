@@ -136,6 +136,9 @@ int vio_getnameinfo(const struct sockaddr *sa,
 /* Set yaSSL to use same type as MySQL do for socket handles */
 typedef my_socket YASSL_SOCKET_T;
 #define YASSL_SOCKET_T_DEFINED
+#ifdef DEPRECATED
+#undef DEPRECATED
+#endif
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 

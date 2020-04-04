@@ -66,6 +66,14 @@
   @@foreign_key_checks <-> OPTION_NO_FOREIGN_KEY_CHECKS
 */
 #define REVERSE(X) ~(X)
+
+/*
+  Deprecated could be defined in /usr/include/openssl/ssl.h for
+  what should be internal use only.
+*/
+#ifdef DEPRECATED
+#undef DEPRECATED
+#endif
 #define DEPRECATED(X) X
 
 #define session_var(THD, TYPE) (*(TYPE*)session_var_ptr(THD))
