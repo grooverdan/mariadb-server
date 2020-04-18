@@ -6081,9 +6081,7 @@ sub gdb_arguments {
   # Put $args into a single string
   $input = $input ? "< $input" : "";
 
-  if ($type eq 'client') {
-    mtr_tofile($gdb_init_file, "set args @$$args $input");
-  } elsif ($opt_valgrind_mysqld) {
+  if ($opt_valgrind_mysqld) {
     my $v = $$exe;
     my $vargs = [];
     valgrind_arguments($vargs, \$v);
@@ -6092,40 +6090,52 @@ shell @My::SafeProcess::safe_process_cmd --parent-pid=`pgrep -x gdb` -- $v --vgd
 shell sleep 1
 target remote | /usr/lib64/valgrind/../../bin/vgdb
 EOF
-  } else {
-    mtr_tofile($gdb_init_file,
-      join("\n",
-        "set args @$$args $input",
-        split /;/, $opt_gdb || ""
-        ));
   }
 
   if ( $opt_manual_gdb )
   {
+     my $use_gdb_init = '';
+     if ( $opt_gdb )
+     {
+       foreach my $ex (split /;/, $opt_gdb)
+       {
+         $use_gdb_init .= '-ex "' . $ex . '" ';
+       }
+     }
      print "\nTo start gdb for $type, type in another window:\n";
-     print "gdb -cd $glob_mysql_test_dir -x $gdb_init_file $$exe\n";
+     print "gdb -cd $glob_mysql_test_dir $use_gdb_init --args $$exe @$$args $input\n";
 
      # Indicate the exe should not be started
      $$exe= undef;
      return;
   }
 
-  $$args= [];
-  mtr_add_arg($$args, "-title");
-  mtr_add_arg($$args, "$type");
-  mtr_add_arg($$args, "-e");
+  my $new_args= [];
+  mtr_add_arg($new_args, "-title");
+  mtr_add_arg($new_args, "$type");
+  mtr_add_arg($new_args, "-e");
 
   if ( $exe_libtool )
   {
-    mtr_add_arg($$args, $exe_libtool);
-    mtr_add_arg($$args, "--mode=execute");
+    mtr_add_arg($new_args, $exe_libtool);
+    mtr_add_arg($new_args, "--mode=execute");
   }
 
-  mtr_add_arg($$args, "gdb");
-  mtr_add_arg($$args, "-x");
-  mtr_add_arg($$args, "$gdb_init_file");
-  mtr_add_arg($$args, "$$exe");
+  mtr_add_arg($new_args, "gdb");
+  if ($type ne 'client' && $opt_gdb && $opt_gdb ne '#')
+  {
+    foreach my $ex (split /;/, $opt_gdb)
+    {
+      mtr_add_arg($new_args, '-ex');
+      mtr_add_arg($new_args, $ex);
+    }
+  }
+  mtr_add_arg($new_args, "--args");
+  mtr_add_arg($new_args, "$$exe");
+  mtr_add_arg($new_args, '%s', $_) for (@$$args);
+  mtr_add_arg($new_args, $input);
 
+  $$args= $new_args;
   $$exe= "xterm";
 }
 
