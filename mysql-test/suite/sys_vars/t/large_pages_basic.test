@@ -1,3 +1,5 @@
+#--source include/have_large_pages.inc
+
 #
 # show the global and session values;
 #
@@ -10,10 +12,11 @@ select * from information_schema.global_variables where variable_name='large_pag
 select * from information_schema.session_variables where variable_name='large_pages';
 
 #
-# show that it's read-only
+# show there is no session variable
 #
---error ER_INCORRECT_GLOBAL_LOCAL_VAR
-set global large_pages=1;
---error ER_INCORRECT_GLOBAL_LOCAL_VAR
+--error ER_GLOBAL_VARIABLE
 set session large_pages=1;
 
+#
+set global large_pages=1;
+set global large_pages=0;
