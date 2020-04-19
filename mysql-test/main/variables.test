@@ -38,6 +38,7 @@ set @my_delay_key_write           =@@global.delay_key_write;
 set @my_join_buffer_size          =@@global.join_buffer_size;
 set @my_log_warnings              =@@global.log_warnings;
 set @my_local_infile              =@@global.local_infile;
+set @my_large_pages               =@@global.large_pages;
 
 # case insensitivity tests (new in 5.0)
 set @`test`=1;
@@ -813,6 +814,7 @@ set global delay_key_write           =@my_delay_key_write;
 set global join_buffer_size          =@my_join_buffer_size;
 set global log_warnings              =@my_log_warnings;
 set global local_infile              =@my_local_infile;
+set global large_pages               =@my_large_pages;
 
 #
 # Bug#28580 Repeatation of status variables
@@ -963,7 +965,7 @@ SELECT @@session.large_pages;
 SELECT @@global.large_pages;
 --error ER_INCORRECT_GLOBAL_LOCAL_VAR
 SET @@session.large_pages= true;
---error ER_INCORRECT_GLOBAL_LOCAL_VAR
+---error ER_INCORRECT_GLOBAL_LOCAL_VAR
 SET @@global.large_pages= true;
 #
 --echo #

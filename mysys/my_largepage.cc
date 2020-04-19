@@ -17,6 +17,8 @@
 #include "mysys_priv.h"
 #include <mysys_err.h>
 
+#include <atomic>
+
 #ifdef __linux__
 #include <dirent.h>
 #endif
@@ -40,7 +42,8 @@ static size_t my_large_page_size;
 #endif
 
 #ifdef HAVE_LARGE_PAGES
-static my_bool my_use_large_pages= 0;
+static my_bool my_large_pages_init_done= 0;
+static std::atomic<bool> my_use_large_pages;
 #else
 #define my_use_large_pages 0
 #endif
@@ -187,9 +190,17 @@ static size_t my_next_large_page_size(size_t sz, int *start)
 }
 #endif /* defined(MMAP) || !defined(_WIN32) */
 
+void my_disable_large_pages()
+{
+  my_use_large_pages.store(false, std::memory_order_relaxed);
+}
 
 int my_init_large_pages(my_bool super_large_pages)
 {
+  if (my_large_pages_init_done)
+  {
+    return 0;
+  }
 #ifdef _WIN32
   if (!my_obtain_privilege(SE_LOCK_MEMORY_NAME))
   {
@@ -201,7 +212,8 @@ int my_init_large_pages(my_bool super_large_pages)
   my_large_page_size= GetLargePageMinimum();
 #endif
 
-  my_use_large_pages= 1;
+  my_use_large_pages.store(true, std::memory_order_relaxed);
+  my_large_pages_init_done= 1;
   my_get_large_page_sizes(my_large_page_sizes);
 
 #ifndef HAVE_LARGE_PAGES
@@ -269,24 +281,27 @@ MAP_ANON but MAP_ANONYMOUS is marked "for compatibility" */
 uchar *my_large_malloc(size_t *size, myf my_flags)
 {
   uchar *ptr= NULL;
+#ifdef HAVE_LARGE_PAGES
+  bool use_large_pages= my_use_large_pages; /* atomicly retrieve */
+#endif
 
 #ifdef _WIN32
   DWORD alloc_type= MEM_COMMIT | MEM_RESERVE;
   size_t orig_size= *size;
   DBUG_ENTER("my_large_malloc");
 
-  if (my_use_large_pages)
+  if (use_large_pages)
   {
     alloc_type|= MEM_LARGE_PAGES;
     /* Align block size to my_large_page_size */
     *size= MY_ALIGN(*size, (size_t) my_large_page_size);
   }
-  ptr= VirtualAlloc(NULL, *size, alloc_type, PAGE_READWRITE);
+  ptr= (uchar*) VirtualAlloc(NULL, *size, alloc_type, PAGE_READWRITE);
   if (!ptr)
   {
     if (my_flags & MY_WME)
     {
-      if (my_use_large_pages)
+      if (use_large_pages)
       {
         my_printf_error(EE_OUTOFMEMORY,
                         "Couldn't allocate %zu bytes (MEM_LARGE_PAGES page "
@@ -299,10 +314,10 @@ uchar *my_large_malloc(size_t *size, myf my_flags)
         my_error(EE_OUTOFMEMORY, MYF(ME_BELL+ME_ERROR_LOG), *size);
       }
     }
-    if (my_use_large_pages)
+    if (use_large_pages)
     {
       *size= orig_size;
-      ptr= VirtualAlloc(NULL, *size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+      ptr= (uchar*) VirtualAlloc(NULL, *size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
       if (!ptr && my_flags & MY_WME)
       {
         my_error(EE_OUTOFMEMORY, MYF(ME_BELL+ME_ERROR_LOG), *size);
@@ -319,7 +334,7 @@ uchar *my_large_malloc(size_t *size, myf my_flags)
   while (1)
   {
     mapflag= MAP_PRIVATE | OS_MAP_ANON;
-    if (my_use_large_pages)
+    if (use_large_pages)
     {
       large_page_size= my_next_large_page_size(*size, &page_i);
       /* this might be 0, in which case we do a standard mmap */
@@ -339,7 +354,7 @@ uchar *my_large_malloc(size_t *size, myf my_flags)
         aligned_size= *size;
       }
     }
-    ptr= mmap(NULL, aligned_size, PROT_READ | PROT_WRITE, mapflag, -1, 0);
+    ptr= (uchar*) mmap(NULL, aligned_size, PROT_READ | PROT_WRITE, mapflag, -1, 0);
     if (ptr == (void*) -1)
     {
       ptr= NULL;

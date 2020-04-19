@@ -1374,10 +1374,31 @@ static Sys_var_uint Sys_large_page_size(
        NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0), ON_UPDATE(0),
        DEPRECATED(""));
 
+static bool change_large_pages(sys_var *self, THD *thd, enum_var_type type)
+{
+  if (type != OPT_GLOBAL)
+  {
+    return true;
+  }
+  if (opt_large_pages > 0)
+  {
+    if (my_init_large_pages(0))
+    {
+      return true;
+    }
+  }
+  else
+  {
+    my_disable_large_pages();
+  }
+  return false;
+}
+
 static Sys_var_mybool Sys_large_pages(
        "large_pages", "Enable support for large pages",
-       READ_ONLY GLOBAL_VAR(opt_large_pages),
-       CMD_LINE(OPT_ARG), DEFAULT(FALSE));
+       GLOBAL_VAR(opt_large_pages),
+       CMD_LINE(OPT_ARG), DEFAULT(FALSE), NO_MUTEX_GUARD,
+       NOT_IN_BINLOG, ON_CHECK(0), ON_UPDATE(change_large_pages));
 
 static Sys_var_charptr_fscs Sys_language(
        "lc_messages_dir", "Directory where error messages are",
