@@ -6535,8 +6535,11 @@ void handle_connections_sockets()
     extra_ip_flags = fcntl(mysql_socket_getfd(extra_ip_sock), F_GETFL, 0);
   }
 #ifdef HAVE_SYS_UN_H
-  setup_fds(unix_sock);
-  socket_flags=fcntl(mysql_socket_getfd(unix_sock), F_GETFL, 0);
+  if (mysql_socket_getfd(unix_sock) != INVALID_SOCKET)
+  {
+    setup_fds(unix_sock);
+    socket_flags=fcntl(mysql_socket_getfd(unix_sock), F_GETFL, 0);
+  }
 #endif
 
   sd_notify(0, "READY=1\n"
