@@ -109,9 +109,9 @@ static unsigned int get_key_from_key_file(unsigned int key_id,
 // let's simplify the condition below
 #ifndef HAVE_EncryptAes128Gcm
 #define MY_AES_GCM MY_AES_CTR
+#endif
 #ifndef HAVE_EncryptAes128Ctr
 #define MY_AES_CTR MY_AES_CBC
-#endif
 #endif
 
 static inline enum my_aes_mode mode(int flags)

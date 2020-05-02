@@ -255,9 +255,11 @@ const EVP_CIPHER *(*ciphers[])(uint)= {
     aes_ecb, aes_cbc
 #ifdef HAVE_EncryptAes128Ctr
   , aes_ctr
+#else
+  , 0
+#endif
 #ifdef HAVE_EncryptAes128Gcm
   , aes_gcm
-#endif
 #endif
 };
 
@@ -267,7 +269,6 @@ int my_aes_crypt_init(void *ctx, enum my_aes_mode mode, int flags,
                       const unsigned char* key, unsigned int klen,
                       const unsigned char* iv, unsigned int ivlen)
 {
-#ifdef HAVE_EncryptAes128Ctr
 #ifdef HAVE_EncryptAes128Gcm
   if (mode == MY_AES_GCM)
     if (flags & ENCRYPTION_FLAG_NOPAD)
@@ -276,6 +277,7 @@ int my_aes_crypt_init(void *ctx, enum my_aes_mode mode, int flags,
       new (ctx) MyCTX_gcm();
   else
 #endif
+#ifdef HAVE_EncryptAes128Ctr
   if (mode == MY_AES_CTR)
     new (ctx) MyCTX();
   else
@@ -331,10 +333,10 @@ unsigned int my_aes_get_size(enum my_aes_mode mode __attribute__((unused)), unsi
 #ifdef HAVE_EncryptAes128Ctr
   if (mode == MY_AES_CTR)
     return source_length;
+#endif
 #ifdef HAVE_EncryptAes128Gcm
   if (mode == MY_AES_GCM)
     return source_length + MY_AES_BLOCK_SIZE;
-#endif
 #endif
   return (source_length / MY_AES_BLOCK_SIZE + 1) * MY_AES_BLOCK_SIZE;
 }

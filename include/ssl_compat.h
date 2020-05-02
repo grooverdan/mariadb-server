@@ -76,13 +76,21 @@
 #define OPENSSL_init_ssl(X,Y)           SSL_library_init()
 #define DH_set0_pqg(D,P,Q,G)            ((D)->p= (P), (D)->g= (G))
 #define EVP_CIPHER_CTX_buf_noconst(ctx) ((ctx)->buf)
+#ifndef EVP_CIPHER_CTX_encrypting
+#ifdef HAVE_WOLFSSL
+#define EVP_CIPHER_CTX_encrypting(ctx)  ((ctx)->enc)
+#else
 #define EVP_CIPHER_CTX_encrypting(ctx)  ((ctx)->encrypt)
+#endif
+#endif
 #define EVP_CIPHER_CTX_SIZE             sizeof(EVP_CIPHER_CTX)
 
 #ifndef HAVE_WOLFSSL
 #define EVP_MD_CTX_reset(X) EVP_MD_CTX_cleanup(X)
 #endif
+#ifndef EVP_CIPHER_CTX_reset
 #define EVP_CIPHER_CTX_reset(X) EVP_CIPHER_CTX_cleanup(X)
+#endif
 #define X509_get0_notBefore(X) X509_get_notBefore(X)
 #define X509_get0_notAfter(X) X509_get_notAfter(X)
 #endif
