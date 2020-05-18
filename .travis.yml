@@ -12,6 +12,7 @@ os:
   - linux
   - osx
 osx_image: xcode10.1
+
 compiler:
   - gcc
   - clang
@@ -25,17 +26,15 @@ cache:
 
 env:
   matrix:
-    - CC_VERSION=5 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=main
-    - CC_VERSION=5 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=archive,optimizer_unfixed_bugs,parts,sys_vars,unit,vcol,innodb,innodb_gis,innodb_zip,innodb_fts
-    - CC_VERSION=5 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=rpl
-    - CC_VERSION=6 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=binlog,binlog_encryption,encryption
-    - CC_VERSION=6 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=rocksdb,versioning
-    - CC_VERSION=6 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=csv,federated,funcs_1,funcs_2,gcol,handler,heap,json,maria,perfschema,plugins,multi_source,roles
+    - CC_VERSION=4.8 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=rpl
+    - CC_VERSION=5   TYPE=RelWithDebInfo MYSQL_TEST_SUITES=main,archive,optimizer_unfixed_bugs,parts,sys_vars,unit,vcol,innodb,innodb_gis,innodb_zip,innodb_fts
+    - CC_VERSION=6   TYPE=RelWithDebInfo MYSQL_TEST_SUITES=binlog,binlog_encryption,encryption,rocksdb
+    - CC_VERSION=6   TYPE=RelWithDebInfo MYSQL_TEST_SUITES=csv,federated,funcs_1,funcs_2,gcol,handler,heap,json,maria,percona,perfschema,plugins,multi_source,roles
 
 matrix:
   exclude:
-    - os: osx
-      compiler: gcc
+    - compiler: clang
+      env: CC_VERSION=5   TYPE=RelWithDebInfo MYSQL_TEST_SUITES=main,archive,optimizer_unfixed_bugs,parts,sys_vars,unit,vcol,innodb,innodb_gis,innodb_zip,innodb_fts
   include:
     - os: linux
       compiler: gcc
@@ -87,26 +86,20 @@ matrix:
         - export MTR_MEM=/tmp
         - env DEB_BUILD_OPTIONS="parallel=4" debian/autobake-deb.sh;
         - ccache --show-stats
-  # Until OSX becomes a bit more stable: MDEV-12435 MDEV-16213
+  # Until OSX becomes a bit more stable: MDEV-16213, MDEV-22173
   allow_failures:
     - os: osx
       compiler: clang
-      env: CC_VERSION=5 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=rpl
+      env: CC_VERSION=4.8 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=rpl
     - os: osx
       compiler: clang
-      env: CC_VERSION=5 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=main
+      env: CC_VERSION=5 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=main,archive,optimizer_unfixed_bugs,parts,sys_vars,unit,vcol,innodb,innodb_gis,innodb_zip,innodb_fts
     - os: osx
       compiler: clang
-      env: CC_VERSION=5 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=archive,optimizer_unfixed_bugs,parts,sys_vars,unit,vcol,innodb,innodb_gis,innodb_zip,innodb_fts
+      env: CC_VERSION=6 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=binlog,binlog_encryption,encryption,rocksdb,versioning
     - os: osx
       compiler: clang
-      env: CC_VERSION=6 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=binlog,binlog_encryption,encryption
-    - os: osx
-      compiler: clang
-      env: CC_VERSION=6 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=rocksdb,versioning
-    - os: osx
-      compiler: clang
-      env: CC_VERSION=6 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=csv,federated,funcs_1,funcs_2,gcol,handler,heap,json,maria,perfschema,plugins,multi_source,roles
+      env: CC_VERSION=6 TYPE=RelWithDebInfo MYSQL_TEST_SUITES=csv,federated,funcs_1,funcs_2,gcol,handler,heap,json,maria,percona,perfschema,plugins,multi_source,roles
 
 addons:
   apt:
@@ -138,6 +131,7 @@ addons:
       - libreadline-gplv2-dev
       - libstemmer-dev
       - libssl-dev
+      - libsystemd-daemon-dev
       - libnuma-dev
       - libxml2-dev
       - lsb-release
@@ -151,8 +145,6 @@ addons:
       - liblzma-dev
       - libzmq-dev
       - uuid-dev
-
-# libsystemd-daemon-dev # https://github.com/travis-ci/apt-package-whitelist/issues/3882
 
 before_install:
   - if [[ "${TRAVIS_OS_NAME}" == 'osx' ]]; then
