@@ -22,22 +22,17 @@ addons:
     sources: &add-sources
       - ubuntu-toolchain-r-test # Includes e.g. gcc4-9 for xenial, gcc9 for bionic
       # https://launchpad.net/~ubuntu-toolchain-r/+archive/ubuntu/test/+packages?field.name_filter=&field.status_filter=published&field.series_filter=xenial
-      - llvm-toolchain-xenial-7 # NOTE: This repo has no clang-7 for s390x
       - sourceline: 'ppa:maria-captains/travis-ci-helper-repo'
       # https://launchpad.net/~maria-captains/+archive/ubuntu/travis-ci-helper-repo/+packages
     packages: &common-packages
       # make sure these include all compilers and all build dependencies (see list above)
       - bison
       - chrpath
-      - clang-7 # bionic-updates, llvm-toolchain-xenial-6.0 (amd64 only, not s390x)
       - clang-8 # xenial, bionic
       - cmake
       - cracklib-runtime
       - galera-4
       - g++-5 # xenial, bionic, ubuntu-toolchain-r/test (xenial)
-      - g++-7 # bionic, ubuntu-toolchain-r/test (xenial)
-      - g++-8 # bionic, ubuntu-toolchain-r/test (xenial)
-      - g++-9 # ubuntu-toolchain-r/test (xenial and bionic)
       - gdb
       - libaio-dev
       - libboost-dev
