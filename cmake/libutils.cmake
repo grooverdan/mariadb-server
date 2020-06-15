@@ -131,18 +131,9 @@ ENDMACRO()
 # mariadbd.
 
 MACRO(MERGE_STATIC_LIBS TARGET OUTPUT_NAME LIBS_TO_MERGE)
-  # To produce a library we need at least one source file.
-  # It is created by ADD_CUSTOM_COMMAND below and will helps 
-  # also help to track dependencies.
-  SET(SOURCE_FILE ${CMAKE_CURRENT_BINARY_DIR}/${TARGET}_depends.c)
-  ADD_LIBRARY(${TARGET} STATIC ${SOURCE_FILE})
-  SET_TARGET_PROPERTIES(${TARGET} PROPERTIES OUTPUT_NAME ${OUTPUT_NAME})
-  IF(NOT _SKIP_PIC)
-    SET_TARGET_PROPERTIES(${TARGET} PROPERTIES  COMPILE_FLAGS
-    "${CMAKE_SHARED_LIBRARY_C_FLAGS}")
-  ENDIF()
 
   SET(OSLIBS)
+  SET(SOURCEOBJS)
   FOREACH(LIB ${LIBS_TO_MERGE})
     IF(NOT TARGET ${LIB})
        # 3rd party library like libz.so. Make sure that everything
@@ -153,9 +144,8 @@ MACRO(MERGE_STATIC_LIBS TARGET OUTPUT_NAME LIBS_TO_MERGE)
       # This is a target in current project
       # (can be a static or shared lib)
       IF(LIB_TYPE STREQUAL "STATIC_LIBRARY")
-        SET(STATIC_TGTS ${STATIC_TGTS} ${LIB})
+	LIST(APPEND SOURCEOBJS $<TARGET_OBJECTS:${LIB}>)
         SET(STATIC_LIBS ${STATIC_LIBS} $<TARGET_FILE:${LIB}>)
-        ADD_DEPENDENCIES(${TARGET} ${LIB})
         # Extract dependent OS libraries
         GET_DEPENDEND_OS_LIBS(${LIB} LIB_OSLIBS)
         LIST(APPEND OSLIBS ${LIB_OSLIBS})
@@ -165,18 +155,17 @@ MACRO(MERGE_STATIC_LIBS TARGET OUTPUT_NAME LIBS_TO_MERGE)
       ENDIF()
     ENDIF()
   ENDFOREACH()
+  ADD_LIBRARY(${TARGET} STATIC ${SOURCEOBJS})
+  SET_TARGET_PROPERTIES(${TARGET} PROPERTIES OUTPUT_NAME ${OUTPUT_NAME})
+    IF(NOT _SKIP_PIC)
+    SET_TARGET_PROPERTIES(${TARGET} PROPERTIES  COMPILE_FLAGS
+    "${CMAKE_SHARED_LIBRARY_C_FLAGS}")
+  ENDIF()
+
   IF(OSLIBS)
     LIST(REMOVE_DUPLICATES OSLIBS)
     TARGET_LINK_LIBRARIES(${TARGET} ${OSLIBS})
   ENDIF()
-
-  # Make the generated dummy source file depended on all static input
-  # libs. If input lib changes,the source file is touched
-  # which causes the desired effect (relink).
-  ADD_CUSTOM_COMMAND( 
-    OUTPUT  ${SOURCE_FILE}
-    COMMAND ${CMAKE_COMMAND}  -E touch ${SOURCE_FILE}
-    DEPENDS ${STATIC_TGTS})
 
   IF(MSVC)
     # To merge libs, just pass them to lib.exe command line.
@@ -186,44 +175,6 @@ MACRO(MERGE_STATIC_LIBS TARGET OUTPUT_NAME LIBS_TO_MERGE)
     ENDFOREACH()
     SET_TARGET_PROPERTIES(${TARGET} PROPERTIES STATIC_LIBRARY_FLAGS 
       "${LINKER_EXTRA_FLAGS}")
-  ELSE()
-    IF(APPLE)
-      # Use OSX's libtool to merge archives (ihandles universal 
-      # binaries properly)
-      ADD_CUSTOM_COMMAND(TARGET ${TARGET} POST_BUILD
-        COMMAND rm $<TARGET_FILE:${TARGET}>
-        COMMAND libtool -static -o $<TARGET_FILE:${TARGET}>
-        ${STATIC_LIBS}
-      )  
-    ELSE()
-      # Generic Unix, Cygwin or MinGW. In post-build step, call
-      # script, that uses a MRI script to append static archives.
-      IF(CMAKE_VERSION VERSION_LESS "3.0")
-        SET(MRI_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/${TARGET}.mri")
-      ELSE()
-        SET(MRI_SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/${TARGET}-$<CONFIG>.mri")
-      ENDIF()
-      SET(MRI_SCRIPT_TPL "${MRI_SCRIPT}.tpl")
-
-      SET(SCRIPT_CONTENTS "CREATE $<TARGET_FILE:${TARGET}>\n")
-      FOREACH(LIB ${STATIC_LIBS})
-        SET(SCRIPT_CONTENTS "${SCRIPT_CONTENTS}\nADDLIB ${LIB}\n")
-      ENDFOREACH()
-      FILE(WRITE ${MRI_SCRIPT_TPL} "${SCRIPT_CONTENTS}\nSAVE\nEND\n")
-      FILE(GENERATE OUTPUT ${MRI_SCRIPT} INPUT ${MRI_SCRIPT_TPL})
-
-      ADD_CUSTOM_COMMAND(TARGET ${TARGET} POST_BUILD
-        DEPENDS ${MRI_SCRIPT}
-        COMMAND ${CMAKE_COMMAND}
-        ARGS
-          -DTARGET_SCRIPT="${MRI_SCRIPT}"
-          -DCMAKE_AR="${CMAKE_AR}"
-          -P "${MYSQL_CMAKE_SCRIPT_DIR}/merge_archives_unix.cmake"
-        COMMAND ${CMAKE_RANLIB}
-        ARGS $<TARGET_FILE:${TARGET}>
-      )
-      SET_DIRECTORY_PROPERTIES(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES ${MRI_SCRIPT_TPL})
-    ENDIF()
   ENDIF()
 ENDMACRO()
 
