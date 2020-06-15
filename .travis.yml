@@ -145,6 +145,19 @@ jobs:
       env: DebPackages=bionic
       addons: *deb-addons
       script: *deb-script
+    - os: linux
+      arch: ppc64le
+      compiler: gcc
+      env: DebPackages=bionic
+      addons: *deb-addons
+      script: *deb-script
+    - os: linux
+      arch: ppc64le
+      dist: xenial
+      compiler: gcc
+      env: DebPackages=xenial
+      addons: *deb-addons
+      script: *deb-script
       # Just one OS X build is enough
     - os: osx
       osx_image: xcode11.3
