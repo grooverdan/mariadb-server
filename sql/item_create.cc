@@ -35,7 +35,7 @@
 #include "sp.h"
 #include "item_inetfunc.h"
 #include "sql_time.h"
-#include "tztime.h"
+
 /*
 =============================================================================
   LOCAL DECLARATIONS
@@ -4580,7 +4580,6 @@ Item*
 Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
                                          List<Item> *item_list)
 {
-  Item *func= NULL;
   int arg_count= 0;
 
   if (item_list != NULL)
@@ -4590,15 +4589,18 @@ Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
   case 1:
   {
     Item *param_1= item_list->pop();
-    func= new (thd->mem_root) Item_func_from_unixtime(thd, param_1);
+    return new (thd->mem_root) Item_func_from_unixtime(thd, param_1);
     break;
   }
   case 2:
   {
     Item *param_1= item_list->pop();
     Item *param_2= item_list->pop();
-    Item *ut= new (thd->mem_root) Item_func_from_unixtime(thd, param_1);
-    func= new (thd->mem_root) Item_func_date_format(thd, ut, param_2);
+    Item_func_from_unixtime *ut= new (thd->mem_root) Item_func_from_unixtime(thd, param_1);
+    Item_func_date_format *func= new (thd->mem_root) Item_func_date_format(thd, ut, param_2);
+    ut->set_date_format(func, NULL);
+    func->skip_print_args();
+    return func;
     break;
   }
   case 3:
@@ -4606,46 +4608,32 @@ Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
     Item *param_1= item_list->pop();
     Item *param_2= item_list->pop();
     Item *param_3= item_list->pop();
-
-    // We do not accept (well I have no idea how to do that, and probably is
-    // useless too) dynamic (I dot even know the name) sting, but just the
-    // hardcoded initial one
-    if (!param_3->fixed)
-    {
-      my_error(ER_NOT_SUPPORTED_YET, MYF(0), "reading timezone from rows");
-      break;
-    }
-    auto tz= my_tz_find(thd, param_3->val_str());
-    if (!tz)
-    {
-      my_error(ER_UNKNOWN_TIME_ZONE, MYF(0), name->str);
-      return NULL;
-    }
-    // All preliminary check done, we can allocate the stuff
     Item_func_from_unixtime *ut= new (thd->mem_root) Item_func_from_unixtime(thd, param_1);
-
-    /**
-     * To avoid the ugliness of calling
-     * from_unixtime(123,"%Y%m%d%H%i%s","UTC");
-     * you can use
-     * from_unixtime(101,   0,"UTC");
-     * from_unixtime(101,  "","UTC");
-     * from_unixtime(101,null,"UTC");
-     * We rely on the fact that no possible combination with lenght 0 or 1 are
-     * valid / meaningfull
-     */
-    bool isNull= param_2->is_null();
-    auto str= param_2->val_str();
-
-    if (!(isNull || str->length() < 2))
+    Item_func_date_format *func= new (thd->mem_root) Item_func_date_format(thd, ut, param_2, param_3);
+    ut->set_date_format(func, NULL);
+    func->skip_print_args();
+    return func;
+    break;
+  }
+  case 4:
+  {
+    Item *param_1= item_list->pop();
+    Item *param_2= item_list->pop();
+    Item *param_3= item_list->pop();
+    Item *param_4= item_list->pop();
+    Item_func_date_format *func;
+    Item_func_from_unixtime *ut= new (thd->mem_root) Item_func_from_unixtime(thd, param_1, param_4);
+    if (param_3->is_null())
     {
       func= new (thd->mem_root) Item_func_date_format(thd, ut, param_2);
     }
     else
     {
-      func= ut;
+      func= new (thd->mem_root) Item_func_date_format(thd, ut, param_2, param_3);
     }
-    ut->tz= tz;
+    ut->set_date_format(func, param_3);
+    func->skip_print_args();
+    return func;
     break;
   }
   default:
@@ -4655,7 +4643,7 @@ Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
   }
   }
 
-  return func;
+  return NULL;
 }
 
 
