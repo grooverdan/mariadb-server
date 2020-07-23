@@ -4610,11 +4610,11 @@ Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
     // We do not accept (well I have no idea how to do that, and probably is
     // useless too) dynamic (I dot even know the name) sting, but just the
     // hardcoded initial one
-//    if (!param_3->is_fixed())
-//    {
-//      my_error(ER_NOT_SUPPORTED_YET, MYF(0), "reading timezone from rows");
-//      break;
-//    }
+    if (!param_3->fixed)
+    {
+      my_error(ER_NOT_SUPPORTED_YET, MYF(0), "reading timezone from rows");
+      break;
+    }
     auto tz= my_tz_find(thd, param_3->val_str());
     if (!tz)
     {
