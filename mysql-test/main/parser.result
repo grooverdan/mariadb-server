@@ -409,7 +409,7 @@ select field("p1");
 ERROR 42000: Incorrect parameter count in the call to native function 'field'
 select from_unixtime();
 ERROR 42000: Incorrect parameter count in the call to native function 'from_unixtime'
-select from_unixtime(1, 2, 3);
+select from_unixtime(1, 2, 3, 4);
 ERROR 42000: Incorrect parameter count in the call to native function 'from_unixtime'
 select unix_timestamp(1, 2);
 ERROR 42000: Incorrect parameter count in the call to native function 'unix_timestamp'

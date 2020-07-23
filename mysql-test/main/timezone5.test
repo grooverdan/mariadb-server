@@ -1,0 +1,23 @@
+#
+# Tests for time https://jira.mariadb.org/browse/MDEV-21593
+# 3 argument from_unixtime
+# ts, format, timezone
+# default timezone is GMT+10
+
+
+select from_unixtime(0);
+select from_unixtime(0, '%Y %D %M %h:%i:%s %x');
+#this will return NULL
+select from_unixtime(0,NULL);
+#Ne sintax
+select from_unixtime(0,'%Y %D %M %h:%i:%s %x',"UTC");
+#this will use default format, like select from_unixtime(0);
+select from_unixtime(0,NULL,"UTC");
+set time_zone = "+04:00";
+select from_unixtime(0);
+select from_unixtime(0, '%Y %D %M %h:%i:%s %x');
+#Same timezone as the default one
+select from_unixtime(0, NULL, "+04:00");
+#override
+select from_unixtime(0, '%Y %D %M %h:%i:%s %x',"+08:00");
+select from_unixtime(0, NULL,"+08:00");
