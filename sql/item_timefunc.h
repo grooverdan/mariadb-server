@@ -895,15 +895,20 @@ class Item_func_from_unixtime :public Item_datetimefunc
 {
   bool check_arguments() const
   { return args[0]->check_type_can_return_decimal(func_name()); }
-  Time_zone *tz;
  public:
+  /**
+  * @brief tz can be set during creation (3 args function call)
+  * or during the fix_length_and_dec, where if still null, the current session one
+  * will be used
+  */
+  Time_zone* tz = nullptr;
   Item_func_from_unixtime(THD *thd, Item *a): Item_datetimefunc(thd, a) {}
   const char *func_name() const { return "from_unixtime"; }
   bool fix_length_and_dec();
   bool get_date(MYSQL_TIME *res, ulonglong fuzzy_date);
   bool check_vcol_func_processor(void *arg)
   {
-    return mark_unsupported_function(func_name(), "()", arg, VCOL_SESSION_FUNC);
+    return false;
   }
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_from_unixtime>(thd, this); }

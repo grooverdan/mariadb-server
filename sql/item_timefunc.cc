@@ -2032,9 +2032,11 @@ null_date:
 
 bool Item_func_from_unixtime::fix_length_and_dec()
 {
-  THD *thd= current_thd;
-  thd->time_zone_used= 1;
-  tz= thd->variables.time_zone;
+  if (!tz) { //if not already set, use the current session one
+    THD *thd= current_thd;
+    thd->time_zone_used= 1;
+    tz= thd->variables.time_zone;
+  }
   fix_attributes_datetime_not_fixed_dec(args[0]->decimals);
   maybe_null= true;
   return FALSE;
