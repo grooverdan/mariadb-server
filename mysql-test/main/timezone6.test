@@ -1,0 +1,10 @@
+create table tbl (
+t int unsigned NOT NULL PRIMARY KEY,
+ts datetime as (from_unixtime(t, NULL, NULL, "+08:00") )
+);
+
+insert into tbl(t) values (0), (30), (30000);
+
+select * from tbl;
+show create table tbl;
+drop table tbl;
