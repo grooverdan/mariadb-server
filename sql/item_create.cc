@@ -4580,6 +4580,7 @@ Item*
 Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
                                          List<Item> *item_list)
 {
+  Item *func= NULL;
   int arg_count= 0;
 
   if (item_list != NULL)
@@ -4597,10 +4598,7 @@ Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
     Item *param_1= item_list->pop();
     Item *param_2= item_list->pop();
     Item_func_from_unixtime *ut= new (thd->mem_root) Item_func_from_unixtime(thd, param_1);
-    Item_func_date_format *func= new (thd->mem_root) Item_func_date_format(thd, ut, param_2);
-    ut->set_date_format(func, NULL);
-    func->skip_print_args();
-    return func;
+    func= new (thd->mem_root) Item_func_date_format(thd, true, ut, param_2);
     break;
   }
   case 3:
@@ -4609,10 +4607,7 @@ Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
     Item *param_2= item_list->pop();
     Item *param_3= item_list->pop();
     Item_func_from_unixtime *ut= new (thd->mem_root) Item_func_from_unixtime(thd, param_1);
-    Item_func_date_format *func= new (thd->mem_root) Item_func_date_format(thd, ut, param_2, param_3);
-    ut->set_date_format(func, NULL);
-    func->skip_print_args();
-    return func;
+    func= new (thd->mem_root) Item_func_date_format(thd, true, ut, param_2, param_3);
     break;
   }
   case 4:
@@ -4621,19 +4616,17 @@ Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
     Item *param_2= item_list->pop();
     Item *param_3= item_list->pop();
     Item *param_4= item_list->pop();
-    Item_func_date_format *func;
-    Item_func_from_unixtime *ut= new (thd->mem_root) Item_func_from_unixtime(thd, param_1, param_4);
-    if (param_3->is_null())
+    if (param_2->is_null())
     {
-      func= new (thd->mem_root) Item_func_date_format(thd, ut, param_2);
+      // TODO !param_3->is_null() - error- pointless locale without formatestring.
+      func= new (thd->mem_root) Item_func_from_unixtime(thd, param_1, param_2, param_3, param_4);
     }
     else
     {
-      func= new (thd->mem_root) Item_func_date_format(thd, ut, param_2, param_3);
+      Item_func_from_unixtime *ut;
+      ut= new (thd->mem_root) Item_func_from_unixtime(thd, param_1, param_4);
+      func= new (thd->mem_root) Item_func_date_format(thd, true, ut, param_2, param_3);
     }
-    ut->set_date_format(func, param_3);
-    func->skip_print_args();
-    return func;
     break;
   }
   default:
@@ -4643,7 +4636,7 @@ Create_func_from_unixtime::create_native(THD *thd, LEX_CSTRING *name,
   }
   }
 
-  return NULL;
+  return func;
 }
 
 

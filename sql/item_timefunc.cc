@@ -1846,7 +1846,7 @@ bool Item_func_date_format::fix_length_and_dec()
   THD* thd= current_thd;
   if (!is_time_format)
   {
-    if (arg_count < 3)
+    if (arg_count < 3 || args[2]->is_null())
       locale= thd->variables.lc_time_names;
     else
       if (args[2]->basic_const_item())
@@ -2027,6 +2027,31 @@ String *Item_func_date_format::val_str(String *str)
 null_date:
   null_value=1;
   return 0;
+}
+
+
+void Item_func_date_format::print(String *str, enum_query_type query_type)
+{
+  if (!from_unix_time)
+  {
+    Item_func::print(str, query_type);
+  }
+  else
+  {
+    Item_func_from_unixtime *from_unixtime= (Item_func_from_unixtime*) args[0];
+    // args[0] is a Item_func_from_unixtime
+    str->append(from_unixtime->func_name());
+    str->append('(');
+    from_unixtime->args[0]->print(str, query_type);
+    str->append(',');
+    print_args(str, 1, query_type);
+    if (from_unixtime->arg_count > 1)
+    {
+      str->append(',');
+      from_unixtime->print_args(str, from_unixtime->arg_count - 1, query_type);
+    }
+    str->append(')');
+  }
 }
 
 

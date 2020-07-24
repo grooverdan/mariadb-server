@@ -577,6 +577,7 @@ public:
   Item_temporal_func(THD *thd, Item *a): Item_func(thd, a) {}
   Item_temporal_func(THD *thd, Item *a, Item *b): Item_func(thd, a, b) {}
   Item_temporal_func(THD *thd, Item *a, Item *b, Item *c): Item_func(thd, a, b, c) {}
+  Item_temporal_func(THD *thd, Item *a, Item *b, Item *c, Item *d): Item_func(thd, a, b, c, d) {}
   String *val_str(String *str);
   longlong val_int() { return val_int_from_date(); }
   double val_real() { return val_real_from_date(); }
@@ -660,6 +661,8 @@ public:
     Item_temporal_func(thd, a, b) {}
   Item_datetimefunc(THD *thd, Item *a, Item *b, Item *c):
     Item_temporal_func(thd, a, b ,c) {}
+  Item_datetimefunc(THD *thd, Item *a, Item *b, Item *c, Item *d):
+    Item_temporal_func(thd, a, b ,c, d) {}
   const Type_handler *type_handler() const { return &type_handler_datetime2; }
 };
 
@@ -855,32 +858,26 @@ class Item_func_date_format :public Item_str_func
   bool check_arguments() const
   {
     return args[0]->check_type_can_return_date(func_name()) ||
+           (arg_count > 1 && args[1]->is_null()) ||
            check_argument_types_can_return_text(1, arg_count);
   }
   const MY_LOCALE *locale;
+  bool from_unix_time;
   int fixed_length;
   String value;
 protected:
   bool is_time_format;
-  bool do_print_args;
 public:
   Item_func_date_format(THD *thd, Item *a, Item *b):
-    Item_str_func(thd, a, b), locale(0), is_time_format(false), do_print_args(true) {}
+    Item_str_func(thd, a, b), locale(0), is_time_format(false) {}
+  Item_func_date_format(THD *thd, bool u, Item *a, Item *b):
+    Item_str_func(thd, a, b), locale(0), from_unix_time(u), is_time_format(false) {}
   Item_func_date_format(THD *thd, Item *a, Item *b, Item *c):
-    Item_str_func(thd, a, b, c), locale(0), is_time_format(false), do_print_args(true) {}
+    Item_str_func(thd, a, b, c), locale(0), is_time_format(false) {}
+  Item_func_date_format(THD *thd, bool u, Item *a, Item *b, Item *c):
+    Item_str_func(thd, a, b, c), locale(0), from_unix_time(u), is_time_format(false) {}
   String *val_str(String *str);
-  void skip_print_args() { do_print_args= false; }
-  void print_args(String *str, uint from, enum_query_type query_type)
-  {
-    if (do_print_args)
-    {
-      Item_str_func::print_args(str, from, query_type);
-    }
-  }
-  void force_print_args(String *str, uint from, enum_query_type query_type)
-  {
-    Item_str_func::print_args(str, from, query_type);
-  }
+  virtual void print(String *str, enum_query_type query_type);
   const char *func_name() const { return "date_format"; }
   bool fix_length_and_dec();
   uint format_length(const String *format);
@@ -911,53 +908,35 @@ class Item_func_from_unixtime :public Item_datetimefunc
 {
   bool check_arguments() const
   {
-    if (arg_count == 2 && !tz)
+    if (arg_count > 1 && !tz)
     {
-      my_error(ER_UNKNOWN_TIME_ZONE, MYF(0), args[1]->val_str());
+      my_error(ER_UNKNOWN_TIME_ZONE, MYF(0), args[arg_count-1]->val_str());
       return false;
     }
     return args[0]->check_type_can_return_decimal(func_name());
   }
   Time_zone *tz;
-  Item_func_date_format *date_format;
-  Item *loc;
  public:
   Item_func_from_unixtime(THD *thd, Item *a): Item_datetimefunc(thd, a), tz(0) {}
   Item_func_from_unixtime(THD *thd, Item *a, Item *b): Item_datetimefunc(thd, a, b) {
     tz= my_tz_find(thd, b->val_str());
   }
-  void set_date_format(Item_func_date_format *df, Item *ploc) { date_format= df; loc= ploc; }
+  Item_func_from_unixtime(THD *thd, Item *a, Item *b, Item *c, Item *d):
+    Item_datetimefunc(thd, a, b, c, d) {
+    tz= my_tz_find(thd, d->val_str());
+  }
   const char *func_name() const { return "from_unixtime"; }
   bool fix_length_and_dec();
   bool get_date(MYSQL_TIME *res, ulonglong fuzzy_date);
-  void print_args(String *str, uint from, enum_query_type query_type)
-  {
-    args[0]->print(str, query_type);
-    if (date_format)
-    {
-      str->append(',');
-      date_format->force_print_args(str, 0, query_type);
-    }
-    if (loc && loc->is_null() && arg_count > 1)
-    {
-      str->append(",NULL");
-      //loc->print_args(str, query_type);
-      // might be ok?
-    }
-    for (uint i=1 ; i < arg_count ; i++)
-    {
-      str->append(',');
-      args[i]->print(str, query_type);
-    }
-  }
   bool check_vcol_func_processor(void *arg)
   {
-    //if (arg_count >= 2 && loc && !loc->is_null)
-    return false;
-    // TODO
+    if (arg_count >= 2)
+      return false;
+    return mark_unsupported_function(func_name(), "()", arg, VCOL_SESSION_FUNC);
   }
   Item *get_copy(THD *thd)
   { return get_item_copy<Item_func_from_unixtime>(thd, this); }
+  friend class Item_func_date_format;
 };
 
 
