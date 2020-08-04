@@ -209,11 +209,13 @@ script:
 # cland disabled: tokudb has fatal warnings
 # gcc/rpl: tokudb and mroonga
   - source .travis.compiler.sh
-  - cmake .
+  - mkdir ../build
+  - cd ../build
+  - cmake ${OLDPWD}
            -DCMAKE_BUILD_TYPE=${TYPE}
            ${CMAKE_OPT}
            -DWITH_SSL=system -DWITH_ZLIB=system
-  - make -j 4
+  - cmake --build .
   - cd mysql-test
   - travis_wait 30 ./mtr --force --max-test-fail=20 --parallel=4 --testcase-timeout=${TEST_CASE_TIMEOUT}
          --suite=${MYSQL_TEST_SUITES}
