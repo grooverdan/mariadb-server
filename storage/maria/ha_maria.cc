@@ -51,7 +51,7 @@ C_MODE_END
   rollback, so this flag should be up or down conditionally.
 */
 #ifdef ARIA_HAS_TRANSACTIONS
-#define TRANSACTION_STATE
+#define TRANSACTION_STATE 0
 #else
 #define TRANSACTION_STATE HA_NO_TRANSACTIONS
 #endif
@@ -2804,14 +2804,13 @@ int ha_maria::external_lock(THD *thd, int lock_type)
       else
         file->autocommit= !(thd->variables.option_bits &
                             (OPTION_NOT_AUTOCOMMIT | OPTION_BEGIN));
-#ifndef ARIA_HAS_TRANSACTIONS
       /*
-        Until Aria has full transactions support, including MVCC support for
-        delete and update and purging of old states, we have to commit for
-        every statement.
+        autocommit is an internal variable. We haven't promised any
+        MVCC support though the hander API so we use autocommit as an
+        indicator when to fdatasync to be durable. This way bulk inserting
+        into an Aria table using BEGIN;.... ; COMMIT can sync at the end
+        rather than after every intermediate transaction.
       */
-      file->autocommit=1;
-#endif
     }
     else
     {
@@ -2857,7 +2856,6 @@ int ha_maria::external_lock(THD *thd, int lock_type)
             If autocommit, commit transaction. This can happen when open and
             lock tables as part of creating triggers, in which case commit
             is not called.
-            Until ARIA_HAS_TRANSACTIONS is not defined, always commit.
           */
           if (file->autocommit)
           {
