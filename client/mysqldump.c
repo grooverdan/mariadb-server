@@ -116,6 +116,18 @@ static my_bool  verbose= 0, opt_no_create_info= 0, opt_no_data= 0, opt_no_data_m
                 opt_events= 0, opt_comments_used= 0,
                 opt_alltspcs=0, opt_notspcs= 0, opt_logging,
                 opt_drop_trigger= 0 ;
+#define OPT_SYSTEM_ALL 1
+#define OPT_SYSTEM_USER 2
+#define OPT_SYSTEM_PLUGIN 4
+#define OPT_SYSTEM_UDF 8
+#define OPT_SYSTEM_SERVER 16
+static const char *opt_system_type_values[]=
+    {"all", "users", "plugins",  "udf", "servers"}; /* Option: extend to "stats", "timezones" */
+static TYPELIB opt_system_types=
+{
+    sizeof(opt_system_type_values)/sizeof(opt_system_type_values[0]), "system dump options", opt_system_type_values, NULL
+};
+static ulonglong opt_system= 0ULL;
 static my_bool insert_pat_inited= 0, debug_info_flag= 0, debug_check_flag= 0;
 static ulong opt_max_allowed_packet, opt_net_buffer_length;
 static MYSQL mysql_connection,*mysql=0;
@@ -525,6 +537,8 @@ static struct my_option my_long_options[] =
    &opt_mysql_unix_port, &opt_mysql_unix_port, 0, 
    GET_STR, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
 #include <sslopt-longopts.h>
+  {"system", 256, "Dump system tables as portable SQL",
+   &opt_system, &opt_system, &opt_system_types, GET_SET, REQUIRED_ARG, 0, 0, 0, 0, 0, 0},
   {"tab",'T',
    "Create tab-separated textfile for each table to given path. (Create .sql "
    "and .txt files.) NOTE: This only works if mysqldump is run on the same "
@@ -578,6 +592,10 @@ static int init_dumping_tables(char *);
 static int init_dumping(char *, int init_func(char*));
 static int dump_databases(char **);
 static int dump_all_databases();
+static int dump_all_users();
+static int dump_all_plugins();
+static int dump_all_udf();
+static int dump_all_servers();
 static char *quote_name(const char *name, char *buff, my_bool force);
 char check_if_ignore_table(const char *table_name, char *table_type);
 static char *primary_key_fields(const char *table_name);
@@ -639,9 +657,10 @@ static void print_version(void)
 static void short_usage_sub(FILE *f)
 {
   fprintf(f, "Usage: %s [OPTIONS] database [tables]\n", my_progname_short);
-  fprintf(f, "OR     %s [OPTIONS] --databases [OPTIONS] DB1 [DB2 DB3...]\n",
+  fprintf(f, "OR     %s [OPTIONS] --databases DB1 [DB2 DB3...]\n",
           my_progname_short);
-  fprintf(f, "OR     %s [OPTIONS] --all-databases [OPTIONS]\n", my_progname_short);
+  fprintf(f, "OR     %s [OPTIONS] --all-databases\n", my_progname_short);
+  fprintf(f, "OR     %s [OPTIONS] --system=[SYSTEMOPTIONS]]\n", my_progname_short);
 }
 
 
@@ -1027,6 +1046,39 @@ static int get_options(int *argc, char ***argv)
   if ((ho_error= handle_options(argc, argv, my_long_options, get_one_option)))
     return(ho_error);
 
+  if (opt_system & OPT_SYSTEM_ALL)
+      opt_system|= ~0;
+
+  if (opt_system & OPT_SYSTEM_USER &&
+      (my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.db", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.global_priv", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.table_priv", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.column_priv", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.procs_priv", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.roles_mapping", MYF(MY_WME)))))
+    return(EX_EOM);
+
+  if (opt_system & OPT_SYSTEM_PLUGIN &&
+     my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.plugins", MYF(MY_WME))))
+    return(EX_EOM);
+
+  if (opt_system & OPT_SYSTEM_UDF &&
+     my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.func", MYF(MY_WME))))
+    return(EX_EOM);
+
+  if (opt_system & OPT_SYSTEM_SERVER &&
+     my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.servers", MYF(MY_WME))))
+    return(EX_EOM);
+
   *mysql_params->p_max_allowed_packet= opt_max_allowed_packet;
   *mysql_params->p_net_buffer_length= opt_net_buffer_length;
   if (debug_info_flag)
@@ -1084,7 +1136,7 @@ static int get_options(int *argc, char ***argv)
       !(charset_info= get_charset_by_csname(default_charset,
                                             MY_CS_PRIMARY, MYF(MY_WME))))
     exit(1);
-  if ((*argc < 1 && !opt_alldbs) || (*argc > 0 && opt_alldbs))
+  if ((*argc < 1 && (!opt_alldbs && !opt_system)) || (*argc > 0 && opt_alldbs))
   {
     short_usage(stderr);
     return EX_USAGE;
@@ -4166,6 +4218,212 @@ static char *getTableName(int reset)
 
 
 /*
+  dump user/role grants
+*/
+static int dump_grants(const char *ur)
+{
+  DYNAMIC_STRING sqlbuf;
+  MYSQL_ROW row;
+  MYSQL_RES *tableres;
+
+  init_dynamic_string_checked(&sqlbuf,
+     "SHOW GRANTS FOR ",
+     256, 1024);
+  dynstr_append_checked(&sqlbuf, ur);
+
+  if (mysql_query_with_error_report(mysql, &tableres, sqlbuf.str))
+  {
+    dynstr_free(&sqlbuf);
+    return 1;
+  }
+  while ((row= mysql_fetch_row(tableres)))
+  {
+    fprintf(md_result_file, "%s;\n", row[0]);
+  }
+  mysql_free_result(tableres);
+  dynstr_free(&sqlbuf);
+  return 0;
+}
+
+
+/*
+  dump creater user
+*/
+
+static int dump_create_user(const char *user)
+{
+  DYNAMIC_STRING sqlbuf;
+  MYSQL_ROW row;
+  MYSQL_RES *tableres;
+
+  init_dynamic_string_checked(&sqlbuf,
+     "SHOW CREATE USER ",
+     256, 1024);
+  dynstr_append_checked(&sqlbuf, user);
+
+  if (mysql_query_with_error_report(mysql, &tableres, sqlbuf.str))
+  {
+    dynstr_free(&sqlbuf);
+    return 1;
+  }
+  while ((row= mysql_fetch_row(tableres)))
+  {
+    fprintf(md_result_file, "CREATE USER %s %s;\n", opt_ignore ? " IF NOT EXISTS " : "",
+            row[0] + sizeof("CREATE USER"));
+  }
+  mysql_free_result(tableres);
+  dynstr_free(&sqlbuf);
+  return 0;
+}
+
+
+
+/*
+  dump all users and roles
+*/
+
+static int dump_all_users()
+{
+  MYSQL_ROW row;
+  MYSQL_RES *tableres;
+  int result= 0;
+
+  if (mysql_query_with_error_report(mysql, &tableres,
+       "SELECT CONCAT(QUOTE(User), '@', QUOTE(Host)) AS u FROM mysql.user WHERE is_role='N'"))
+    return 1;
+  while ((row= mysql_fetch_row(tableres)))
+  {
+    if (dump_create_user(row[0]))
+      result= 1;
+    if (dump_grants(row[0]))
+      result= 1;
+  }
+  mysql_free_result(tableres);
+
+  /* No show create role yet, MDEV-22311 */
+  /* Decending Host order to get User admins before Role admins */
+  if (mysql_query_with_error_report(mysql, &tableres,
+       "SELECT QUOTE(Role), IF(Admin_option!='Y','',"
+       "  CONCAT('WITH ADMIN ', QUOTE(User),"
+       "    IF(Host='','',CONCAT('@', QUOTE(Host))))) AS c"
+       " FROM mysql.roles_mapping"
+       " ORDER BY Host DESC"))
+    return 1;
+  while ((row= mysql_fetch_row(tableres)))
+  {
+    fprintf(md_result_file,
+       "CREATE ROLE %s %s %s;\n", opt_ignore ? "IF NOT EXISTS" : "", row[0], row[1]);
+    if (dump_grants(row[0]))
+      result=1;
+  }
+  mysql_free_result(tableres);
+
+  return result;
+}
+
+
+/*
+  dump all plugins
+*/
+
+static int dump_all_plugins()
+{
+  MYSQL_ROW row;
+  MYSQL_RES *tableres;
+
+  if (mysql_query_with_error_report(mysql, &tableres, "SHOW PLUGINS"))
+    return 1;
+  /* Name, Status, Type, Library,License */
+  while ((row= mysql_fetch_row(tableres)))
+  {
+    if (strcmp("ACTIVE", row[1]) != 0)
+      continue;
+    /* Should we be skipping builtins? */
+    if (row[3] == NULL)
+      continue;
+    fprintf(md_result_file,
+       "INSTALL PLUGIN %s %s SONAME '%s';\n", row[0], opt_ignore ? "/*!100401 IF NOT EXISTS */" : "", row[3]);
+  }
+  mysql_free_result(tableres);
+
+  return 0;
+}
+
+
+/*
+  dump all udf
+*/
+
+static int dump_all_udf()
+{
+  /* we don't support all these types yet, but get prepared if we do */
+  static const char *udf_types[] = {"STRING", "REAL", "INT", "ROW", "DECIMAL", "TIME" };
+  MYSQL_ROW row;
+  MYSQL_RES *tableres;
+  int retresult;
+
+  if (mysql_query_with_error_report(mysql, &tableres, "SELECT * FROM mysql.func"))
+    return 1;
+  /* Name, ret, dl, type*/
+  while ((row= mysql_fetch_row(tableres)))
+  {
+    retresult= atoi(row[1]);
+    if (retresult < 0 || (sizeof(udf_types)/sizeof(udf_types[0])) <= (size_t) retresult)
+    {
+      fprintf(stderr, "%s: Error: invalid return type on  udf function '%s'\n",
+                    my_progname_short, row[0]);
+      return 1;
+    }
+    fprintf(md_result_file,
+       "CREATE %s FUNCTION %s %s RETURNS %s SONAME %s;\n",
+       (strcmp("AGGREGATE", row[2])==0 ? "AGGREGATE" : ""),
+       opt_ignore ? "IF NOT EXISTS" : "", row[0], udf_types[retresult], row[3]);
+  }
+  mysql_free_result(tableres);
+
+  return 0;
+}
+
+
+/*
+  dump all plugins
+*/
+
+static int dump_all_servers()
+{
+  /* No create server yet - MDEV-15696 */
+  MYSQL_ROW row;
+  MYSQL_RES *tableres;
+  MYSQL_FIELD *f;
+  unsigned int num_fields, i;
+
+  if (mysql_query_with_error_report(mysql, &tableres, "SELECT * FROM mysql.servers"))
+    return 1;
+  num_fields= mysql_num_fields(tableres);
+  while ((row= mysql_fetch_row(tableres)))
+  {
+    fprintf(md_result_file,"CREATE SERVER %s %s FOREIGN DATA WRAPPER %s OPTIONS ",
+            opt_ignore ? "IF NOT EXSTS" : "", row[0], row[7]);
+    for (i= 1; i <= num_fields; i++)
+    {
+      if (i == 7) /* Wrapper */
+        continue;
+      f= &tableres->fields[i];
+      fprintf(md_result_file, "%s %c%s%c%c", f->name,
+              f->type == MYSQL_TYPE_VARCHAR ? '\'' : ' ',
+              row[i],
+              f->type == MYSQL_TYPE_VARCHAR ? '\'' : ' ',
+              i == num_fields ? ';': ',');
+    }
+    fputs("\n", md_result_file);
+  }
+  mysql_free_result(tableres);
+
+  return 0;
+}
+
+
+/*
   dump all logfile groups and tablespaces
 */
 
@@ -6168,6 +6426,18 @@ int main(int argc, char **argv)
       }
     }
 
+    if (opt_system & OPT_SYSTEM_USER)
+      dump_all_users();
+
+    if (opt_system & OPT_SYSTEM_PLUGIN)
+      dump_all_plugins();
+
+    if (opt_system & OPT_SYSTEM_UDF)
+      dump_all_udf();
+
+    if (opt_system & OPT_SYSTEM_SERVER)
+      dump_all_servers();
+
     if (argc > 1 && !opt_databases)
     {
       /* Only one database and selected table(s) */
@@ -6175,7 +6445,7 @@ int main(int argc, char **argv)
         dump_tablespaces_for_tables(*argv, (argv + 1), (argc - 1));
       dump_selected_tables(*argv, (argv + 1), (argc - 1));
     }
-    else
+    else if (argc > 1)
     {
       /* One or more databases, all tables */
       if (!opt_alltspcs && !opt_notspcs)
