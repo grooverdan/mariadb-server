@@ -202,13 +202,13 @@ before_install:
       brew install gnutls lz4 lzo xz snappy ccache jemalloc curl ossp-uuid pcre zstd;
       brew link ccache;
       export PATH="/usr/local/opt/ccache/libexec:$PATH";
+      ccache --max-size=1G;
     fi
 
 before_script:
   - df -h
   - ccache --version
   - ccache --show-stats
-  - ccache --max-size=5G
 
 script:
 # following modules are disabled after sourcing .travis.compiler.sh:
