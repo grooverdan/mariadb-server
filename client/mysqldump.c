@@ -125,7 +125,7 @@ static const char *opt_system_type_values[]=
     {"all", "users", "plugins",  "udf", "servers"}; /* Option: extend to "stats", "timezones" */
 static TYPELIB opt_system_types=
 {
-    sizeof(opt_system_type_values)/sizeof(opt_system_type_values[0]), "system dump options", opt_system_type_values, NULL
+    array_elements(opt_system_type_values), "system dump options", opt_system_type_values, NULL
 };
 static ulonglong opt_system= 0ULL;
 static my_bool insert_pat_inited= 0, debug_info_flag= 0, debug_check_flag= 0;
@@ -4368,7 +4368,7 @@ static int dump_all_udf()
   while ((row= mysql_fetch_row(tableres)))
   {
     retresult= atoi(row[1]);
-    if (retresult < 0 || (sizeof(udf_types)/sizeof(udf_types[0])) <= (size_t) retresult)
+    if (retresult < 0 || array_elements(udf_types) <= (size_t) retresult)
     {
       fprintf(stderr, "%s: Error: invalid return type on  udf function '%s'\n",
                     my_progname_short, row[0]);
