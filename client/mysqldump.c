@@ -120,7 +120,7 @@ static my_bool  verbose= 0, opt_no_create_info= 0, opt_no_data= 0, opt_no_data_m
 #define OPT_SYSTEM_USER 2
 #define OPT_SYSTEM_PLUGIN 4
 #define OPT_SYSTEM_UDF 8
-#define OPT_SYSTEM_SERVER 16
+#define OPT_SYSTEM_SERVERS 16
 static const char *opt_system_type_values[]=
     {"all", "users", "plugins",  "udf", "servers"}; /* Option: extend to "stats", "timezones" */
 static TYPELIB opt_system_types=
@@ -1074,7 +1074,7 @@ static int get_options(int *argc, char ***argv)
                      (uchar*) my_strdup("mysql.func", MYF(MY_WME))))
     return(EX_EOM);
 
-  if (opt_system & OPT_SYSTEM_SERVER &&
+  if (opt_system & OPT_SYSTEM_SERVERS &&
      my_hash_insert(&ignore_table,
                      (uchar*) my_strdup("mysql.servers", MYF(MY_WME))))
     return(EX_EOM);
@@ -6435,7 +6435,7 @@ int main(int argc, char **argv)
     if (opt_system & OPT_SYSTEM_UDF)
       dump_all_udf();
 
-    if (opt_system & OPT_SYSTEM_SERVER)
+    if (opt_system & OPT_SYSTEM_SERVERS)
       dump_all_servers();
 
     if (argc > 1 && !opt_databases)
