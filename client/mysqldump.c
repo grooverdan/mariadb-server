@@ -4345,7 +4345,7 @@ static int dump_all_users()
   while ((row= mysql_fetch_row(tableres)))
   {
     fprintf(md_result_file,
-       "CREATE ROLE %s %s %s;\n", opt_ignore ? "IF NOT EXISTS" : "", row[0], row[1]);
+       "/*M!100005 CREATE ROLE %s %s %s */;\n", opt_ignore ? "IF NOT EXISTS" : "", row[0], row[1]);
     if (dump_grants(row[0]))
       result=1;
   }
