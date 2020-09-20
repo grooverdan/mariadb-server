@@ -121,8 +121,10 @@ static my_bool  verbose= 0, opt_no_create_info= 0, opt_no_data= 0, opt_no_data_m
 #define OPT_SYSTEM_PLUGIN 4
 #define OPT_SYSTEM_UDF 8
 #define OPT_SYSTEM_SERVERS 16
+#define OPT_SYSTEM_STATS 32
+#define OPT_SYSTEM_TIMEZONES 64
 static const char *opt_system_type_values[]=
-    {"all", "users", "plugins",  "udf", "servers"}; /* Option: extend to "stats", "timezones" */
+    {"all", "users", "plugins",  "udf", "servers", "stats", "timezones"};
 static TYPELIB opt_system_types=
 {
     array_elements(opt_system_type_values), "system dump options", opt_system_type_values, NULL
@@ -581,7 +583,7 @@ static const char *load_default_groups[]=
 static void maybe_exit(int error);
 static void die(int error, const char* reason, ...);
 static void maybe_die(int error, const char* reason, ...);
-static void write_header(FILE *sql_file, char *db_name);
+static void write_header(FILE *sql_file, const char *db_name);
 static void print_value(FILE *file, MYSQL_RES  *result, MYSQL_ROW row,
                         const char *prefix,const char *name,
                         int string_value);
@@ -596,6 +598,8 @@ static int dump_all_users();
 static int dump_all_plugins();
 static int dump_all_udf();
 static int dump_all_servers();
+static int dump_all_stats();
+static int dump_all_timezones();
 static char *quote_name(const char *name, char *buff, my_bool force);
 char check_if_ignore_table(const char *table_name, char *table_type);
 static char *primary_key_fields(const char *table_name);
@@ -708,7 +712,7 @@ static const char *fix_for_comment(const char *ident)
 }
 
 
-static void write_header(FILE *sql_file, char *db_name)
+static void write_header(FILE *sql_file, const char *db_name)
 {
   if (opt_xml)
   {
@@ -1077,6 +1081,32 @@ static int get_options(int *argc, char ***argv)
   if (opt_system & OPT_SYSTEM_SERVERS &&
      my_hash_insert(&ignore_table,
                      (uchar*) my_strdup("mysql.servers", MYF(MY_WME))))
+    return(EX_EOM);
+
+  if (opt_system & OPT_SYSTEM_STATS &&
+     (my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.column_stats", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.index_stats", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.table_stats", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.innodb_table_stats", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.innodb_index_stats", MYF(MY_WME)))))
+    return(EX_EOM);
+
+  if (opt_system & OPT_SYSTEM_TIMEZONES &&
+     (my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.time_zone", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.time_zone_leap_second", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.time_zone_name", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.time_zone_transition", MYF(MY_WME))) ||
+      my_hash_insert(&ignore_table,
+                     (uchar*) my_strdup("mysql.time_zone_transition_type", MYF(MY_WME)))))
     return(EX_EOM);
 
   *mysql_params->p_max_allowed_packet= opt_max_allowed_packet;
@@ -2773,7 +2803,7 @@ static inline my_bool general_log_or_slow_log_tables(const char *db,
     number of fields in table, 0 if error
 */
 
-static uint get_table_structure(char *table, char *db, char *table_type,
+static uint get_table_structure(const char *table, const char *db, char *table_type,
                                 char *ignore_flag)
 {
   my_bool    init=0, delayed, write_data, complete_insert;
@@ -3699,7 +3729,7 @@ static char *alloc_query_str(ulong size)
 */
 
 
-static void dump_table(char *table, char *db, const uchar *hash_key, size_t len)
+static void dump_table(const char *table, const char *db, const uchar *hash_key, size_t len)
 {
   char ignore_flag;
   char buf[200], table_buff[NAME_LEN+3];
@@ -4425,6 +4455,60 @@ static int dump_all_servers()
   }
   mysql_free_result(tableres);
 
+  return 0;
+}
+
+
+/*
+  dump all system statitical tables
+*/
+
+static int dump_all_stats()
+{
+  my_bool opt_prev_no_create_info;
+  if (mysql_select_db(mysql, "mysql"))
+  {
+    DB_error(mysql, "when selecting the database");
+    return 1;                   /* If --force */
+  }
+  fprintf(md_result_file,"\nUSE mysql;\n");
+  opt_prev_no_create_info= opt_no_create_info;
+  opt_no_create_info= 1;
+  /* EITS added in 10.0.1 */
+  if (mysql_get_server_version(mysql) >= 100001)
+  {
+    dump_table("column_stats", "mysql", NULL, 0);
+    dump_table("index_stats", "mysql", NULL, 0);
+    dump_table("table_stats", "mysql", NULL, 0);
+  }
+  dump_table("innodb_index_stats", "mysql", NULL, 0);
+  dump_table("innodb_table_stats", "mysql", NULL, 0);
+  opt_no_create_info= opt_prev_no_create_info;
+  return 0;
+}
+
+
+/*
+  dump all system timezones
+*/
+
+static int dump_all_timezones()
+{
+  my_bool opt_prev_no_create_info;
+  if (mysql_select_db(mysql, "mysql"))
+  {
+    DB_error(mysql, "when selecting the database");
+    return 1;                   /* If --force */
+  }
+  opt_prev_no_create_info= opt_no_create_info;
+  opt_no_create_info= 1;
+  fprintf(md_result_file,"\nUSE mysql;\n");
+  dump_table("time_zone", "mysql", NULL, 0);
+  dump_table("time_zone_name", "mysql", NULL, 0);
+  dump_table("time_zone_leap_second", "mysql", NULL, 0);
+  dump_table("time_zone_transition", "mysql", NULL, 0);
+  dump_table("time_zone_transition_type", "mysql", NULL, 0);
+  opt_no_create_info= opt_prev_no_create_info;
   return 0;
 }
 
@@ -6443,6 +6527,12 @@ int main(int argc, char **argv)
 
     if (opt_system & OPT_SYSTEM_SERVERS)
       dump_all_servers();
+
+    if (opt_system & OPT_SYSTEM_STATS)
+      dump_all_stats();
+
+    if (opt_system & OPT_SYSTEM_TIMEZONES)
+      dump_all_timezones();
 
     if (argc > 1 && !opt_databases)
     {
