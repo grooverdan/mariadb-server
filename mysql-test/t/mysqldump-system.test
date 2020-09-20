@@ -1,0 +1,75 @@
+--echo #
+--echo # MDEV-23630: mysqldump to logically dump system tables
+--echo #
+--echo #
+
+if (!$USER) {
+  skip USER variable is undefined;
+}
+
+#--let $replace=create user $USER
+#--replace_result $replace "create user USER"
+eval create user $USER;
+
+if (`SELECT CONVERT(@@VERSION_COMPILE_OS USING latin1) NOT IN ('Win32', 'Win64', 'Windows')`)
+{
+#--source include/have_unix_socket.inc
+--exec $MYSQL_TZINFO_TO_SQL std_data/zoneinfo | $MYSQL mysql
+
+eval install plugin unix_socket soname '$AUTH_SOCKET_SO';
+--let $replace=alter user $USER
+--replace_result $replace "alter user USER"
+eval alter user $USER identified via unix_socket;
+
+}
+
+CREATE ROLE role_1;
+
+GRANT SHOW DATABASES ON *.* TO role_1;
+--let $replace=$USER
+--replace_result $replace "USER"
+eval GRANT role_1 TO $USER;
+
+# innodb tables status
+ANALYZE TABLE mysql.gtid_slave_pos PERSISTENT FOR ALL;
+ANALYZE TABLE mysql.plugin PERSISTENT FOR ALL;
+
+CREATE SERVER s1 FOREIGN DATA WRAPPER mysql OPTIONS(HOST 'localhost');
+
+--source include/have_udf.inc
+--replace_result $UDF_EXAMPLE_SO UDF_EXAMPLE_LIB
+eval CREATE FUNCTION metaphon RETURNS STRING SONAME "$UDF_EXAMPLE_SO";
+
+
+#
+# Now that we have such an assortment, lets actually do some tests.
+#
+
+
+
+
+#
+# Cleanup
+#
+
+DROP FUNCTION IF EXISTS metaphon;
+
+DROP SERVER s1;
+
+# EITS && innodb stats
+DELETE FROM column_stats WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
+DELETE FROM index_stats  WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
+DELETE FROM table_stats  WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
+DELETE FROM innodb_index_stats WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
+DELETE FROM innodb_table_stats WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
+
+DROP ROLE role_1;
+
+--let $replace=drop user $USER
+--replace_result $replace "drop user USER"
+eval drop user $USER;
+
+if (`SELECT CONVERT(@@VERSION_COMPILE_OS USING latin1) NOT IN ('Win32', 'Win64', 'Windows')`)
+{
+uninstall plugin unix_socket;
+}
