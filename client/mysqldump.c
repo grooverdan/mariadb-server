@@ -4334,13 +4334,23 @@ static int dump_all_users()
   if (mysql_get_server_version(mysql) < 100005)
 	  goto exit;
   /* No show create role yet, MDEV-22311 */
-  /* Decending Host order to get User admins before Role admins */
+  /* Roles, with user admins first, then roles they adminster, and recurse on that */
   if (mysql_query_with_error_report(mysql, &tableres,
-       "SELECT QUOTE(Role), IF(Admin_option!='Y','',"
-       "  CONCAT('WITH ADMIN ', QUOTE(User),"
-       "    IF(Host='','',CONCAT('@', QUOTE(Host))))) AS c"
-       " FROM mysql.roles_mapping"
-       " ORDER BY Host DESC"))
+      "WITH RECURSIVE create_role_order AS"
+      "  (SELECT roles_mapping.*"
+      "   FROM mysql.roles_mapping"
+      "   JOIN mysql.user USING (user,host)"
+      "   WHERE is_role='N'"
+      "     AND Admin_option='Y'"
+      "   UNION SELECT r.*"
+      "   FROM create_role_order c"
+      "   JOIN mysql.roles_mapping r ON c.role=r.user"
+      "   AND r.host=''"
+      "   AND r.Admin_option='Y')"
+      "SELECT QUOTE(ROLE),"
+      "       CONCAT('WITH ADMIN ', QUOTE(USER),"
+      "	      IF(HOST='', '', CONCAT('@', QUOTE(HOST)))) AS c"
+      "FROM create_role_order"))
     return 1;
   while ((row= mysql_fetch_row(tableres)))
   {
@@ -4349,7 +4359,17 @@ static int dump_all_users()
     if (dump_grants(row[0]))
       result=1;
   }
+  mysql_free_result(tableres);
 
+  if (mysql_query_with_error_report(mysql, &tableres,
+      "select IF(default_role='', 'NONE', QUOTE(default_role)) as r,"
+      "concat(QUOTE(User), '@', QUOTE(Host)) as u FROM mysql.user"))
+    return 1;
+  while ((row= mysql_fetch_row(tableres)))
+  {
+    fprintf(md_result_file,
+       "/*M!100005 SET DEFAULT ROLE %s FOR %s */;\n", row[0], row[1]);
+  }
   mysql_free_result(tableres);
 
 exit:
