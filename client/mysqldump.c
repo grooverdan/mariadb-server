@@ -4317,6 +4317,8 @@ static int dump_all_users()
   MYSQL_ROW row;
   MYSQL_RES *tableres;
   int result= 0;
+  /* Roles added in 10.0.5 */
+  my_bool roles_exist= (mysql_get_server_version(mysql) >= 100005);
 
   if (mysql_query_with_error_report(mysql, &tableres,
        "SELECT CONCAT(QUOTE(User), '@', QUOTE(Host)) AS u FROM mysql.user /*M!100005 WHERE is_role='N' */"))
@@ -4325,14 +4327,13 @@ static int dump_all_users()
   {
     if (dump_create_user(row[0]))
       result= 1;
-    if (dump_grants(row[0]))
+    if (!roles_exist && dump_grants(row[0]))
       result= 1;
   }
   mysql_free_result(tableres);
 
-  /* Roles added in 10.0.5 */
-  if (mysql_get_server_version(mysql) < 100005)
-	  goto exit;
+  if (!roles_exist)
+    goto exit;
   /* No show create role yet, MDEV-22311 */
   /* Roles, with user admins first, then roles they adminster, and recurse on that */
   if (mysql_query_with_error_report(mysql, &tableres,
@@ -4346,32 +4347,42 @@ static int dump_all_users()
       "   FROM create_role_order c"
       "   JOIN mysql.roles_mapping r ON c.role=r.user"
       "   AND r.host=''"
-      "   AND r.Admin_option='Y')"
+      "   AND r.Admin_option='Y') "
       "SELECT QUOTE(ROLE),"
       "       CONCAT('WITH ADMIN ', QUOTE(USER),"
-      "	      IF(HOST='', '', CONCAT('@', QUOTE(HOST)))) AS c"
+      "	      IF(HOST='', '', CONCAT('@', QUOTE(HOST)))) AS c "
       "FROM create_role_order"))
     return 1;
   while ((row= mysql_fetch_row(tableres)))
   {
     fprintf(md_result_file,
        "/*M!100005 CREATE ROLE %s %s %s */;\n", opt_ignore ? "IF NOT EXISTS" : "", row[0], row[1]);
-    if (dump_grants(row[0]))
-      result=1;
   }
   mysql_free_result(tableres);
 
   if (mysql_query_with_error_report(mysql, &tableres,
       "select IF(default_role='', 'NONE', QUOTE(default_role)) as r,"
-      "concat(QUOTE(User), '@', QUOTE(Host)) as u FROM mysql.user"))
+      "concat(QUOTE(User), '@', QUOTE(Host)) as u FROM mysql.user  "
+      "/*M!100005 WHERE is_role='N' */"))
     return 1;
   while ((row= mysql_fetch_row(tableres)))
   {
+    if (dump_grants(row[1]))
+      result= 1;
     fprintf(md_result_file,
        "/*M!100005 SET DEFAULT ROLE %s FOR %s */;\n", row[0], row[1]);
   }
   mysql_free_result(tableres);
 
+  if (mysql_query_with_error_report(mysql, &tableres,
+       "SELECT QUOTE(User) AS r FROM mysql.user /*M!100005 WHERE is_role='Y' */"))
+    return 1;
+  while ((row= mysql_fetch_row(tableres)))
+  {
+    if (dump_grants(row[0]))
+      result= 1;
+  }
+  mysql_free_result(tableres);
 exit:
 
   return result;
