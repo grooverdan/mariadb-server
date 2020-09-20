@@ -4289,7 +4289,7 @@ static int dump_all_users()
   int result= 0;
 
   if (mysql_query_with_error_report(mysql, &tableres,
-       "SELECT CONCAT(QUOTE(User), '@', QUOTE(Host)) AS u FROM mysql.user WHERE is_role='N'"))
+       "SELECT CONCAT(QUOTE(User), '@', QUOTE(Host)) AS u FROM mysql.user /*M!100005 WHERE is_role='N' */"))
     return 1;
   while ((row= mysql_fetch_row(tableres)))
   {
@@ -4300,6 +4300,9 @@ static int dump_all_users()
   }
   mysql_free_result(tableres);
 
+  /* Roles added in 10.0.5 */
+  if (mysql_get_server_version(mysql) < 100005)
+	  goto exit;
   /* No show create role yet, MDEV-22311 */
   /* Decending Host order to get User admins before Role admins */
   if (mysql_query_with_error_report(mysql, &tableres,
@@ -4316,7 +4319,10 @@ static int dump_all_users()
     if (dump_grants(row[0]))
       result=1;
   }
+
   mysql_free_result(tableres);
+
+exit:
 
   return result;
 }
