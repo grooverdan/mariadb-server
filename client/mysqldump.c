@@ -6432,11 +6432,11 @@ int main(int argc, char **argv)
       }
     }
 
-    if (opt_system & OPT_SYSTEM_USER)
-      dump_all_users();
-
     if (opt_system & OPT_SYSTEM_PLUGIN)
       dump_all_plugins();
+
+    if (opt_system & OPT_SYSTEM_USER)
+      dump_all_users();
 
     if (opt_system & OPT_SYSTEM_UDF)
       dump_all_udf();
