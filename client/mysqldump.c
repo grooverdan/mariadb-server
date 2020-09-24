@@ -1290,7 +1290,6 @@ static int fetch_db_collation(const char *db_name,
   my_bool err_status= FALSE;
   MYSQL_RES *db_cl_res;
   MYSQL_ROW db_cl_row;
-
   if (mysql_select_db(mysql, db_name))
   {
     DB_error(mysql, "when selecting the database");
@@ -4298,7 +4297,7 @@ static int dump_create_user(const char *user)
   }
   while ((row= mysql_fetch_row(tableres)))
   {
-    fprintf(md_result_file, "CREATE USER %s %s;\n", opt_ignore ? " IF NOT EXISTS " : "",
+    fprintf(md_result_file, "CREATE USER %s%s;\n", opt_ignore ? "IF NOT EXISTS " : "",
             row[0] + sizeof("CREATE USER"));
   }
   mysql_free_result(tableres);
@@ -4356,7 +4355,7 @@ static int dump_all_users()
   while ((row= mysql_fetch_row(tableres)))
   {
     fprintf(md_result_file,
-       "/*M!100005 CREATE ROLE %s %s %s */;\n", opt_ignore ? "IF NOT EXISTS" : "", row[0], row[1]);
+       "/*M!100005 CREATE ROLE %s%s %s */;\n", opt_ignore ? "IF NOT EXISTS " : "", row[0], row[1]);
   }
   mysql_free_result(tableres);
 
@@ -4442,9 +4441,9 @@ static int dump_all_udf()
       return 1;
     }
     fprintf(md_result_file,
-       "CREATE %s FUNCTION %s %s RETURNS %s SONAME %s;\n",
-       (strcmp("AGGREGATE", row[2])==0 ? "AGGREGATE" : ""),
-       opt_ignore ? "IF NOT EXISTS" : "", row[0], udf_types[retresult], row[3]);
+       "CREATE %sFUNCTION %s%s RETURNS %s SONAME '%s';\n",
+       (strcmp("AGGREGATE", row[2])==0 ? "AGGREGATE " : ""),
+       opt_ignore ? "IF NOT EXISTS " : "", row[0], udf_types[retresult], row[2]);
   }
   mysql_free_result(tableres);
 
@@ -4471,8 +4470,8 @@ static int dump_all_servers()
   num_fields= mysql_num_fields(tableres);
   while ((row= mysql_fetch_row(tableres)))
   {
-    fprintf(md_result_file,"CREATE SERVER %s %s FOREIGN DATA WRAPPER %s OPTIONS (",
-            opt_ignore ? "IF NOT EXSTS" : "", row[0], row[7]);
+    fprintf(md_result_file,"CREATE SERVER %s%s FOREIGN DATA WRAPPER %s OPTIONS (",
+            opt_ignore ? "IF NOT EXSTS " : "", row[0], row[7]);
     for (i= 1; i < num_fields; i++)
     {
       if (i == 7 || row[i][0] == '\0') /* Wrapper or empty string */
@@ -4497,15 +4496,16 @@ static int dump_all_servers()
 
 static int dump_all_stats()
 {
-  my_bool opt_prev_no_create_info;
+  my_bool prev_no_create_info;
+
   if (mysql_select_db(mysql, "mysql"))
   {
     DB_error(mysql, "when selecting the database");
     return 1;                   /* If --force */
   }
   fprintf(md_result_file,"\nUSE mysql;\n");
-  opt_prev_no_create_info= opt_no_create_info;
-  opt_no_create_info= 1;
+  prev_no_create_info= opt_no_create_info;
+  opt_no_create_info= 1; /* don't overwrite recreate tables */
   /* EITS added in 10.0.1 */
   if (mysql_get_server_version(mysql) >= 100001)
   {
@@ -4513,9 +4513,15 @@ static int dump_all_stats()
     dump_table("index_stats", "mysql", NULL, 0);
     dump_table("table_stats", "mysql", NULL, 0);
   }
-  dump_table("innodb_index_stats", "mysql", NULL, 0);
-  dump_table("innodb_table_stats", "mysql", NULL, 0);
-  opt_no_create_info= opt_prev_no_create_info;
+  /* Innodb may be disabled */
+  if (!mysql_query(mysql, "show fields from innodb_index_stats"))
+  {
+    MYSQL_RES *tableres= mysql_store_result(mysql);
+    mysql_free_result(tableres);
+    dump_table("innodb_index_stats", "mysql", NULL, 0);
+    dump_table("innodb_table_stats", "mysql", NULL, 0);
+  }
+  opt_no_create_info= prev_no_create_info;
   return 0;
 }
 
