@@ -4463,26 +4463,27 @@ static int dump_all_servers()
   MYSQL_RES *tableres;
   MYSQL_FIELD *f;
   unsigned int num_fields, i;
+  my_bool comma_prepend= 0;
+  const char *qstring;
 
   if (mysql_query_with_error_report(mysql, &tableres, "SELECT * FROM mysql.servers"))
     return 1;
   num_fields= mysql_num_fields(tableres);
   while ((row= mysql_fetch_row(tableres)))
   {
-    fprintf(md_result_file,"CREATE SERVER %s %s FOREIGN DATA WRAPPER %s OPTIONS ",
+    fprintf(md_result_file,"CREATE SERVER %s %s FOREIGN DATA WRAPPER %s OPTIONS (",
             opt_ignore ? "IF NOT EXSTS" : "", row[0], row[7]);
-    for (i= 1; i <= num_fields; i++)
+    for (i= 1; i < num_fields; i++)
     {
-      if (i == 7) /* Wrapper */
+      if (i == 7 || row[i][0] == '\0') /* Wrapper or empty string */
         continue;
       f= &tableres->fields[i];
-      fprintf(md_result_file, "%s %c%s%c%c", f->name,
-              f->type == MYSQL_TYPE_VARCHAR ? '\'' : ' ',
-              row[i],
-              f->type == MYSQL_TYPE_VARCHAR ? '\'' : ' ',
-              i == num_fields ? ';': ',');
+      qstring= (f->type == MYSQL_TYPE_STRING || f->type == MYSQL_TYPE_VAR_STRING) ? "'" : "";
+      fprintf(md_result_file, "%s%s %s%s%s",
+              (comma_prepend ? ", " : ""), f->name, qstring, row[i], qstring);
+      comma_prepend= 1;
     }
-    fputs("\n", md_result_file);
+    fputs(");\n", md_result_file);
   }
   mysql_free_result(tableres);
 
