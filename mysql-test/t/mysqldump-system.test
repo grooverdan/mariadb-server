@@ -1,3 +1,6 @@
+--source include/not_embedded.inc
+--source include/have_innodb.inc
+
 --echo #
 --echo # MDEV-23630: mysqldump to logically dump system tables
 --echo #
@@ -7,32 +10,38 @@ if (!$USER) {
   skip USER variable is undefined;
 }
 
-#--let $replace=create user $USER
-#--replace_result $replace "create user USER"
 eval create user $USER;
 
 if (`SELECT CONVERT(@@VERSION_COMPILE_OS USING latin1) NOT IN ('Win32', 'Win64', 'Windows')`)
 {
-#--source include/have_unix_socket.inc
---exec $MYSQL_TZINFO_TO_SQL std_data/zoneinfo | $MYSQL mysql
-
-eval install plugin unix_socket soname '$AUTH_SOCKET_SO';
---let $replace=alter user $USER
---replace_result $replace "alter user USER"
-eval alter user $USER identified via unix_socket;
+--eval install plugin unix_socket soname '$AUTH_SOCKET_SO';
+--eval alter user $USER identified via unix_socket;
 
 }
 
+# time zone data already loaded
+
 CREATE ROLE role_1;
+CREATE ROLE role_2 WITH ADMIN role_1;
 
 GRANT SHOW DATABASES ON *.* TO role_1;
 --let $replace=$USER
 --replace_result $replace "USER"
 eval GRANT role_1 TO $USER;
+--replace_result $replace "USER"
+eval GRANT role_2 TO $USER;
 
-# innodb tables status
+# innodb and EITS tables status
+set @save_innodb_stats_persistent= @@innodb_stats_persistent;
+create table mysql.tz like mysql.time_zone_transition;
+alter table mysql.tz engine=innodb;
+insert into mysql.tz select * from mysql.time_zone_transition;
+set global innodb_stats_persistent=1;
 ANALYZE TABLE mysql.gtid_slave_pos PERSISTENT FOR ALL;
-ANALYZE TABLE mysql.plugin PERSISTENT FOR ALL;
+ANALYZE TABLE mysql.tz PERSISTENT FOR ALL;
+update mysql.innodb_index_stats set last_update="2001-01-01" where database_name="mysql" and table_name="tz";
+update mysql.innodb_table_stats set last_update="2001-01-01" where database_name="mysql" and table_name="tz";
+set global innodb_stats_persistent= @save_innodb_stats_persistent;
 
 CREATE SERVER s1 FOREIGN DATA WRAPPER mysql OPTIONS(HOST 'localhost');
 
@@ -45,24 +54,31 @@ eval CREATE FUNCTION metaphon RETURNS STRING SONAME "$UDF_EXAMPLE_SO";
 # Now that we have such an assortment, lets actually do some tests.
 #
 
+# TODO ^INSTALL PLUGIN   root@'$MYHOSTNAME'
+--replace_result $replace USER $UDF_EXAMPLE_SO UDF_EXAMPLE_LIB " IDENTIFIED VIA unix_socket" ""
+exec $MYSQL_DUMP --skip-comments --system=all
 
-
+--replace_result $replace USER $UDF_EXAMPLE_SO UDF_EXAMPLE_LIB " IDENTIFIED VIA unix_socket" ""
+exec $MYSQL_DUMP --skip-comments --system=all --insert-ignore
 
 #
 # Cleanup
 #
 
 DROP FUNCTION IF EXISTS metaphon;
+DROP FUNCTION IF EXISTS metaphon;
 
 DROP SERVER s1;
 
 # EITS && innodb stats
-DELETE FROM column_stats WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
-DELETE FROM index_stats  WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
-DELETE FROM table_stats  WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
-DELETE FROM innodb_index_stats WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
-DELETE FROM innodb_table_stats WHERE db_name='mysql' and table_name in ('plugin', 'gtid_slave_pos');
+DELETE FROM mysql.column_stats WHERE db_name='mysql' and table_name in ('tz', 'gtid_slave_pos');
+DELETE FROM mysql.index_stats  WHERE db_name='mysql' and table_name in ('tz', 'gtid_slave_pos');
+DELETE FROM mysql.table_stats  WHERE db_name='mysql' and table_name in ('tz', 'gtid_slave_pos');
+DELETE FROM mysql.innodb_index_stats WHERE database_name='mysql' and table_name in ('tz','gtid_slave_pos');
+DELETE FROM mysql.innodb_table_stats WHERE database_name='mysql' and table_name in ('tz','gtid_slave_pos');
+drop table mysql.tz;
 
+DROP ROLE role_2;
 DROP ROLE role_1;
 
 --let $replace=drop user $USER
