@@ -4251,6 +4251,8 @@ static char *getTableName(int reset)
 */
 static int dump_grants(const char *ur)
 {
+  /* Work around for MDEV-13486 */
+  static const char *bad_proxy = "GRANT PROXY ON ''@'%' TO ";
   DYNAMIC_STRING sqlbuf;
   MYSQL_ROW row;
   MYSQL_RES *tableres;
@@ -4267,6 +4269,8 @@ static int dump_grants(const char *ur)
   }
   while ((row= mysql_fetch_row(tableres)))
   {
+    if (strncmp(bad_proxy, row[0], sizeof(bad_proxy)) == 0)
+      continue;
     fprintf(md_result_file, "%s;\n", row[0]);
   }
   mysql_free_result(tableres);
@@ -4297,7 +4301,7 @@ static int dump_create_user(const char *user)
   }
   while ((row= mysql_fetch_row(tableres)))
   {
-    fprintf(md_result_file, "CREATE %sUSER %s%s;\n", opt_replace_into ? "OR REPLACE ": "",
+    fprintf(md_result_file, "CREATE %sUSER %s%s;\n", opt_replace_into ? "/*M!100103 OR REPLACE */ ": "",
              opt_ignore ? "IF NOT EXISTS " : "",
             row[0] + sizeof("CREATE USER"));
   }
@@ -4319,7 +4323,7 @@ static int dump_all_users()
   int result= 0;
   /* Roles added in 10.0.5 */
   my_bool roles_exist= (mysql_get_server_version(mysql) >= 100005);
-
+ 
   if (mysql_query_with_error_report(mysql, &tableres,
        "SELECT CONCAT(QUOTE(User), '@', QUOTE(Host)) AS u FROM mysql.user /*M!100005 WHERE is_role='N' */"))
     return 1;
@@ -4356,7 +4360,7 @@ static int dump_all_users()
   while ((row= mysql_fetch_row(tableres)))
   {
     fprintf(md_result_file,
-       "/*M!100005 CREATE %sROLE %s%s %s */;\n", opt_replace_into ? "OR REPLACE ": "",
+       "%sROLE %s%s %s */;\n", opt_replace_into ? "/*M!100103 CREATE OR REPLACE ": "/*M!100005 CREATE ",
        opt_ignore ? "IF NOT EXISTS " : "", row[0], row[1]);
   }
   mysql_free_result(tableres);
@@ -4444,7 +4448,7 @@ static int dump_all_udf()
     }
     fprintf(md_result_file,
        "CREATE %s%sFUNCTION %s%s RETURNS %s SONAME '%s';\n",
-       opt_replace_into ? "OR REPLACE ": "",
+       opt_replace_into ? "/*M!100103 OR REPLACE */ ": "",
        (strcmp("AGGREGATE", row[2])==0 ? "AGGREGATE " : ""),
        opt_ignore ? "IF NOT EXISTS " : "", row[0], udf_types[retresult], row[2]);
   }
@@ -4474,8 +4478,8 @@ static int dump_all_servers()
   while ((row= mysql_fetch_row(tableres)))
   {
     fprintf(md_result_file,"CREATE %sSERVER %s%s FOREIGN DATA WRAPPER %s OPTIONS (",
-            opt_replace_into ? "OR REPLACE ": "",
-            opt_ignore ? "IF NOT EXSTS " : "", row[0], row[7]);
+            opt_replace_into ? "/*M!100103 OR REPLACE */ ": "",
+            opt_ignore ? "/*M!100103 IF NOT EXISTS */ " : "", row[0], row[7]);
     for (i= 1; i < num_fields; i++)
     {
       if (i == 7 || row[i][0] == '\0') /* Wrapper or empty string */
@@ -6581,11 +6585,13 @@ int main(int argc, char **argv)
     if (opt_system & OPT_SYSTEM_TIMEZONES)
       dump_all_timezones();
 
+#if 0
     if (opt_system & (OPT_SYSTEM_STATS | OPT_SYSTEM_TIMEZONES))
     {
-      /* restore to database after loading stats/timezones */
-      fprintf(md_result_file,"\n/*M!100203 EXECUTE IMMEDIATE CONCAT('use ', @current_database)*/;\n");
+      /* restore active database after loading stats/timezones - MDEV-23819 TODO */
+      fprintf(md_result_file,"\n/*M!100203 EXECUTE IMMEDIATE 'use ?' USING @current_database */;\n");
     }
+#endif
 
     if (argc > 1 && !opt_databases)
     {

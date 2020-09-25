@@ -50,7 +50,7 @@ update mysql.innodb_index_stats set last_update="2020-01-01" where database_name
 update mysql.innodb_table_stats set last_update="2020-01-01" where database_name="mysql" and table_name="tz";
 set global innodb_stats_persistent= @save_innodb_stats_persistent;
 
-CREATE SERVER s1 FOREIGN DATA WRAPPER mysql OPTIONS(HOST 'localhost');
+CREATE SERVER s1 FOREIGN DATA WRAPPER mysql OPTIONS(Host 'localhost');
 
 --source include/have_udf.inc
 --replace_result $UDF_EXAMPLE_SO UDF_EXAMPLE_LIB
@@ -93,11 +93,12 @@ CHECKSUM TABLE mysql.user, mysql.roles_mapping, mysql.time_zone_transition, mysq
 
 --echo # Opps....
 
+CREATE USER mariadb_test_restore IDENTIFIED BY 'getitback';
+GRANT ALL PRIVILEGES ON *.* TO mariadb_test_restore WITH GRANT OPTION;
+GRANT SUPER, CREATE USER /*M!100502 ,FEDERATED ADMIN */ ON *.* TO mariadb_test_restore WITH GRANT OPTION;
 
 --replace_result $replace "USER"
 eval drop user $USER;
-
-delete from mysql.servers;
 delete from mysql.table_stats;
 delete from mysql.innodb_table_stats;
 delete from mysql.time_zone_transition;
@@ -106,14 +107,14 @@ delete from mysql.time_zone;
 delete from mysql.time_zone_name;
 delete from mysql.time_zone_leap_second;
 DROP FUNCTION IF EXISTS metaphon;
-
+DROP SERVER s1;
 
 
 --echo # Restore from mysqldump
-exec $MYSQL < $MYSQLTEST_VARDIR/tmp/dump1.sql;
+--exec $MYSQL --user mariadb_test_restore --password=getitback --show-warnings  < $MYSQLTEST_VARDIR/tmp/dump1.sql;
+#--remove_file $MYSQLTEST_VARDIR/tmp/dump1.sql;
 
---remove_file $MYSQLTEST_VARDIR/tmp/dump1.sql;
-
+DROP USER mariadb_test_restore;
 
 # successful restore?
 
