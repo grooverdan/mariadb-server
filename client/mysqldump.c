@@ -4297,7 +4297,8 @@ static int dump_create_user(const char *user)
   }
   while ((row= mysql_fetch_row(tableres)))
   {
-    fprintf(md_result_file, "CREATE USER %s%s;\n", opt_ignore ? "IF NOT EXISTS " : "",
+    fprintf(md_result_file, "CREATE %sUSER %s%s;\n", opt_replace_into ? "OR REPLACE ": "",
+             opt_ignore ? "IF NOT EXISTS " : "",
             row[0] + sizeof("CREATE USER"));
   }
   mysql_free_result(tableres);
@@ -4355,7 +4356,8 @@ static int dump_all_users()
   while ((row= mysql_fetch_row(tableres)))
   {
     fprintf(md_result_file,
-       "/*M!100005 CREATE ROLE %s%s %s */;\n", opt_ignore ? "IF NOT EXISTS " : "", row[0], row[1]);
+       "/*M!100005 CREATE %sROLE %s%s %s */;\n", opt_replace_into ? "OR REPLACE ": "",
+       opt_ignore ? "IF NOT EXISTS " : "", row[0], row[1]);
   }
   mysql_free_result(tableres);
 
@@ -4441,7 +4443,8 @@ static int dump_all_udf()
       return 1;
     }
     fprintf(md_result_file,
-       "CREATE %sFUNCTION %s%s RETURNS %s SONAME '%s';\n",
+       "CREATE %s%sFUNCTION %s%s RETURNS %s SONAME '%s';\n",
+       opt_replace_into ? "OR REPLACE ": "",
        (strcmp("AGGREGATE", row[2])==0 ? "AGGREGATE " : ""),
        opt_ignore ? "IF NOT EXISTS " : "", row[0], udf_types[retresult], row[2]);
   }
@@ -4470,7 +4473,8 @@ static int dump_all_servers()
   num_fields= mysql_num_fields(tableres);
   while ((row= mysql_fetch_row(tableres)))
   {
-    fprintf(md_result_file,"CREATE SERVER %s%s FOREIGN DATA WRAPPER %s OPTIONS (",
+    fprintf(md_result_file,"CREATE %sSERVER %s%s FOREIGN DATA WRAPPER %s OPTIONS (",
+            opt_replace_into ? "OR REPLACE ": "",
             opt_ignore ? "IF NOT EXSTS " : "", row[0], row[7]);
     for (i= 1; i < num_fields; i++)
     {
@@ -6566,11 +6570,22 @@ int main(int argc, char **argv)
     if (opt_system & OPT_SYSTEM_SERVERS)
       dump_all_servers();
 
+    if (opt_system & (OPT_SYSTEM_STATS | OPT_SYSTEM_TIMEZONES))
+    {
+      fprintf(md_result_file,"\nSELECT database() INTO @current_database;\n");
+    }
+
     if (opt_system & OPT_SYSTEM_STATS)
       dump_all_stats();
 
     if (opt_system & OPT_SYSTEM_TIMEZONES)
       dump_all_timezones();
+
+    if (opt_system & (OPT_SYSTEM_STATS | OPT_SYSTEM_TIMEZONES))
+    {
+      /* restore to database after loading stats/timezones */
+      fprintf(md_result_file,"\n/*M!100203 EXECUTE IMMEDIATE CONCAT('use ', @current_database)*/;\n");
+    }
 
     if (argc > 1 && !opt_databases)
     {
