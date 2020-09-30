@@ -1,0 +1,86 @@
+--source include/have_innodb.inc
+--source include/default_optimizer_switch.inc
+
+set @save_storage_engine= @@storage_engine;
+set @save_optimizer_switch= @@optimizer_switch;
+set @save_use_stat_tables= @@use_stat_tables;
+set storage_engine=InnoDB;
+
+--disable_warnings
+DROP DATABASE IF EXISTS dbt3_s001;
+--enable_warnings
+
+CREATE DATABASE dbt3_s001;
+
+use dbt3_s001;
+
+--disable_query_log
+--disable_result_log
+--disable_warnings
+--source include/dbt3_s001.inc
+--enable_warnings
+--enable_result_log
+--enable_query_log
+
+CREATE INDEX i_l_quantity ON lineitem(l_quantity);
+
+CREATE INDEX i_o_totalprice ON orders(o_totalprice);
+
+set @@use_stat_tables=preferably;
+
+--disable_result_log
+--disable_warnings
+ANALYZE TABLE lineitem, orders;
+--enable_warnings
+--enable_result_log
+
+show create table lineitem;
+show create table orders;
+
+set optimizer_use_condition_selectivity=2;
+set optimizer_switch='rowid_filter=on';
+
+--echo #
+--echo # MDEV-22761 KILL QUERY during rowid_filter, crashes
+--echo #
+
+let $q=
+SELECT l_orderkey, l_linenumber, l_shipdate, l_quantity FROM lineitem
+  WHERE  l_shipdate BETWEEN '1997-03-01' AND '1997-06-30' AND
+         l_quantity > 45;
+
+connect (con1, localhost, root,,);
+use dbt3_s001;
+BEGIN;
+eval $q LOCK IN SHARE MODE;
+
+connection default;
+let $ID= `SELECT @id := CONNECTION_ID()`;
+send SELECT l_orderkey, l_linenumber, l_shipdate, l_quantity FROM lineitem
+  WHERE  l_shipdate BETWEEN '1997-01-01' AND '1997-06-30' AND
+         l_quantity > 45 FOR UPDATE;
+
+connection con1;
+# Check that the above SELECT is blocked
+let $wait_condition=
+  select count(*) = 1 from information_schema.processlist
+  where state = 'Sending data' and info LIKE 'SELECT l_orderkey%';
+--source include/wait_condition.inc
+let $ignore= `SELECT @id := $ID`;
+select sleep(3);
+kill query @id;
+
+connection default;
+--error ER_QUERY_INTERRUPTED
+reap;
+
+connection con1;
+ROLLBACK;
+connection default;
+disconnect con1;
+
+DROP DATABASE IF EXISTS dbt3_s001;
+
+set @@optimizer_switch=@save_optimizer_switch;
+set @@use_stat_tables=@save_use_stat_tables;
+set storage_engine= @save_storage_engine;
