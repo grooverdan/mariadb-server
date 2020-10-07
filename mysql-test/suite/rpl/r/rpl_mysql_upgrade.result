@@ -2,12 +2,23 @@ include/master-slave.inc
 [connection master]
 call mtr.add_suppression("Unsafe statement written to the binary log using statement format since BINLOG_FORMAT = STATEMENT");
 call mtr.add_suppression("table or database name 'mysqltest-1'");
-DROP DATABASE IF EXISTS `#mysql50#mysqltest-1`;
-CREATE DATABASE `#mysql50#mysqltest-1`;
+DROP DATABASE IF EXISTS `mysqltest-1`;
+CREATE DATABASE `mysqltest-1`;
 Master position is not changed
-STOP SLAVE SQL_THREAD;
-include/wait_for_slave_sql_to_stop.inc
+SET @old_general_log_state = @@global.general_log;
+SET @old_slow_log_state = @@global.slow_query_log;
+SET @old_log_output = @@global.log_output;
+SET GLOBAL general_log = 'ON';
+SET GLOBAL slow_query_log = 'ON';
+SET GLOBAL log_output = 'FILE';
+ALTER TABLE mysql.slow_log DROP COLUMN thread_id, DROP COLUMN rows_affected;
+DROP DATABASE IF EXISTS `mysqltest-1`;
 Master position has been changed
-DROP DATABASE `mysqltest-1`;
-DROP DATABASE `#mysql50#mysqltest-1`;
+SET GLOBAL general_log = 'OFF';
+SET GLOBAL slow_query_log = 'OFF';
+truncate mysql.slow_log;
+truncate mysql.general_log;
+SET GLOBAL general_log = @old_general_log_state;
+SET GLOBAL slow_query_log = @old_slow_log_state;
+SET GLOBAL log_output = @old_log_output;
 include/rpl_end.inc
