@@ -2795,7 +2795,7 @@ drop database d;
 
 --echo #
 --echo # MDEV-21786:
---echo # myslqdump will forget sequence definition details on --no-data dump
+--echo # mysqldump will forget sequence definition details on --no-data dump
 --echo #
 create database d;
 

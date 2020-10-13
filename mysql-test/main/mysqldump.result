@@ -5906,7 +5906,7 @@ ds=~!@ \# $% ^ & * ( ) _ - = +	int(11)	YES		5	INVISIBLE
 drop database d;
 #
 # MDEV-21786:
-# myslqdump will forget sequence definition details on --no-data dump
+# mysqldump will forget sequence definition details on --no-data dump
 #
 create database d;
 CREATE SEQUENCE d.s1 START WITH 100 INCREMENT BY 10 MINVALUE=100 MAXVALUE=1100 CYCLE;

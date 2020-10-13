@@ -2745,13 +2745,9 @@ static inline my_bool general_log_or_slow_log_tables(const char *db,
   ARGS
     seq         - sequence name
     db          - db name
-
-  RETURN
-    0 if ok, 1 if error
-
 */
 
-static uint get_sequence_structure(const char *seq, const char *db)
+static void get_sequence_structure(const char *seq, const char *db)
 {
 
   char	     table_buff[NAME_LEN*2+3];
@@ -2763,7 +2759,7 @@ static uint get_sequence_structure(const char *seq, const char *db)
   DBUG_ENTER("get_sequence_structure");
   DBUG_PRINT("enter", ("db: %s  sequence: %s", db, seq));
 
-  verbose_msg("-- Retrieving table structure for sequence %s...\n", seq);
+  verbose_msg("-- Retrieving sequence structure for  %s...\n", seq);
 
   result_seq= quote_name(seq, table_buff, 1);
   // Sequences as tables share same flags
@@ -2771,15 +2767,13 @@ static uint get_sequence_structure(const char *seq, const char *db)
   {
     char buff[20+FN_REFLEN];
     my_snprintf(buff, sizeof(buff), "SHOW CREATE SEQUENCE %s", result_seq);
-    if (switch_character_set_results(mysql, "binary") ||
-    mysql_query_with_error_report(mysql, &result, buff) ||
-    switch_character_set_results(mysql, default_charset))
+    if (mysql_query_with_error_report(mysql, &result, buff))
     {
-      DBUG_RETURN(1);
+      DBUG_VOID_RETURN;
     }
 
     print_comment(sql_file, 0,
-              "\n--\n-- Table structure for sequence %s\n--\n\n",
+              "\n--\n-- Sequence structure for %s\n--\n\n",
               fix_for_comment(result_seq));
     if (opt_drop)
     {
@@ -2793,7 +2787,7 @@ static uint get_sequence_structure(const char *seq, const char *db)
     // Sequences will not use inserts, so no need for REPLACE and LOCKS
     mysql_free_result(result);
   }
-  DBUG_RETURN(0);
+  DBUG_VOID_RETURN;
 }
 /*
   get_table_structure -- retrievs database structure, prints out corresponding
@@ -3781,10 +3775,8 @@ static void dump_table(char *table, char *db, const uchar *hash_key, size_t len)
   */ 
   if (check_if_ignore_table(table, table_type) & IGNORE_SEQUENCE_TABLE)
   {
-    if (!get_sequence_structure(table, db))
-    {
-      DBUG_VOID_RETURN;
-    }
+    get_sequence_structure(table, db);
+    DBUG_VOID_RETURN;
   }
   /*
     Make sure you get the create table info before the following check for
