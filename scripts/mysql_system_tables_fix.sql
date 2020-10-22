@@ -655,7 +655,7 @@ ALTER TABLE user ADD password_expired ENUM('N', 'Y') COLLATE utf8_general_ci DEF
 ALTER TABLE user ADD password_last_changed timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL after password_expired;
 ALTER TABLE user ADD password_lifetime smallint unsigned DEFAULT NULL after password_last_changed;
 ALTER TABLE user ADD account_locked enum('N', 'Y') COLLATE utf8_general_ci DEFAULT 'N' NOT NULL after password_lifetime;
-ALTER TABLE user ADD is_role enum('N', 'Y') COLLATE utf8_general_ci DEFAULT 'N' NOT NULL AFTER password_expired;
+ALTER TABLE user ADD is_role enum('N', 'Y') COLLATE utf8_general_ci DEFAULT 'N' NOT NULL AFTER account_locked;
 ALTER TABLE user ADD default_role char(80) binary DEFAULT '' NOT NULL AFTER is_role;
 ALTER TABLE user ADD max_statement_time decimal(12,6) DEFAULT 0 NOT NULL AFTER default_role;
 -- Somewhere above, we ran ALTER TABLE user .... CONVERT TO CHARACTER SET utf8 COLLATE utf8_bin.

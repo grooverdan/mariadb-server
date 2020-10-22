@@ -225,15 +225,12 @@ SET GLOBAL enforce_storage_engine=NULL;
 --echo #
 
 --exec $MYSQL_DUMP --result-file $MYSQLTEST_VARDIR/tmp/user.sql mysql user
-#FIXME: mysql.user is a view in 10.4
-#--remove_file $MYSQLD_DATADIR/mysql/user.frm
-#--remove_file $MYSQLD_DATADIR/mysql/user.MYI
-#--remove_file $MYSQLD_DATADIR/mysql/user.MYD
-#
-#--copy_file std_data/mysql57user.frm $MYSQLD_DATADIR/mysql/user.frm
-#--copy_file std_data/mysql57user.MYI $MYSQLD_DATADIR/mysql/user.MYI
-#--copy_file std_data/mysql57user.MYD $MYSQLD_DATADIR/mysql/user.MYD
-#FLUSH TABLES mysql.user;
+DROP VIEW mysql.user;
+
+--copy_file std_data/mysql57user.frm $MYSQLD_DATADIR/mysql/user.frm
+--copy_file std_data/mysql57user.MYI $MYSQLD_DATADIR/mysql/user.MYI
+--copy_file std_data/mysql57user.MYD $MYSQLD_DATADIR/mysql/user.MYD
+FLUSH TABLES mysql.user;
 FLUSH PRIVILEGES;
 SHOW CREATE TABLE mysql.user;
 
