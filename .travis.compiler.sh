@@ -25,6 +25,7 @@ if [[ "${TRAVIS_OS_NAME}" == 'linux' ]]; then
     ccache --max-size=2200M
   fi
   if [[ "${CXX}" == 'clang++' ]]; then
+    CMAKE_OPT="${CMAKE_OPT} -DWITH_MSAN=ON"
     export CXX CC=${CXX/++/}
   elif [[ "${CXX}" == 'g++' ]]; then
     export CXX=g++-${CC_VERSION}
@@ -42,7 +43,7 @@ fi
 if [[ "${TRAVIS_OS_NAME}" == 'osx' ]]; then
   TEST_CASE_TIMEOUT=20
   exclude_modules;
-  CMAKE_OPT="${CMAKE_OPT} -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl"
+  CMAKE_OPT="${CMAKE_OPT} -DWITH_MSAN=ON -DOPENSSL_ROOT_DIR=/usr/local/opt/openssl"
   if which ccache ; then
     CMAKE_OPT="${CMAKE_OPT} -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
   fi
