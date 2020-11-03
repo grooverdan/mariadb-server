@@ -8,19 +8,16 @@
 --echo #
 --echo #
 
-# might need fixing in 10.4 to different mechanism
-create table backup_users like mysql.user;
-insert into backup_users select * from mysql.user where host not in ('localhost');
-delete from mysql.user where host not in ('localhost');
+create table backup_users like mysql.global_priv;
+create table tables_priv like mysql.tables_priv;
+insert into backup_users select * from mysql.global_priv;
+insert into tables_priv select * from mysql.tables_priv;
+delete from mysql.global_priv where host not in ('localhost');
 flush privileges;
 
+# mariadb.sys because of MDEV-24098
+alter user 'mariadb.sys'@'localhost' ACCOUNT UNLOCK;
 create user USER;
-
-if (`SELECT CONVERT(@@VERSION_COMPILE_OS USING latin1) NOT IN ('Win32', 'Win64', 'Windows')`)
-{
---eval install plugin /*M!100401 IF NOT EXISTS */ unix_socket soname '$AUTH_SOCKET_SO';
-alter user USER identified via unix_socket;
-}
 
 # time zone data already loaded
 
@@ -88,7 +85,15 @@ eval CREATE FUNCTION metaphon RETURNS STRING SONAME "$UDF_EXAMPLE_SO";
 --exec $MYSQL_DUMP --skip-comments --system=all --insert-ignore
 
 
-CHECKSUM TABLE mysql.user, mysql.roles_mapping, mysql.time_zone_transition, mysql.plugin,
+# global_priv checksum not restored because:
+# mariadb.sys - different Priv on restore
+# password_last_changed date isn't saved/restored
+# root user's Priv $.access lower number on restore
+
+--replace_regex /"password_last_changed":[0-9]+/"password_last_changed":NOW/
+SELECT * FROM mysql.global_priv ORDER BY User,Host;
+
+CHECKSUM TABLE mysql.roles_mapping, mysql.time_zone_transition, mysql.plugin,
     mysql.servers, mysql.func, mysql.innodb_table_stats, mysql.table_stats;
 
 --echo # Opps....
@@ -112,13 +117,15 @@ set time_zone= @@global.time_zone;
 
 --echo # Restore from mysqldump
 --exec $MYSQL --user mariadb_test_restore --password=getitback --show-warnings  < $MYSQLTEST_VARDIR/tmp/dump1.sql
-#--remove_file $MYSQLTEST_VARDIR/tmp/dump1.sql;
 
 DROP USER mariadb_test_restore;
 
 # successful restore?
 
-CHECKSUM TABLE mysql.user, mysql.roles_mapping, mysql.time_zone_transition, mysql.plugin,
+--replace_regex /"password_last_changed":[0-9]+/"password_last_changed":NOW/
+SELECT * FROM mysql.global_priv ORDER BY User,Host;
+
+CHECKSUM TABLE mysql.roles_mapping, mysql.time_zone_transition, mysql.plugin,
     mysql.servers, mysql.func, mysql.innodb_table_stats, mysql.table_stats;
 
 #
@@ -142,11 +149,7 @@ DROP ROLE role_1;
 
 drop user USER;
 
-if (`SELECT CONVERT(@@VERSION_COMPILE_OS USING latin1) NOT IN ('Win32', 'Win64', 'Windows')`)
-{
-uninstall plugin unix_socket;
-}
-
-insert into mysql.user select * from backup_users;
+replace into mysql.global_priv select * from backup_users;
+replace into mysql.tables_priv select * from tables_priv;
 flush privileges;
-drop table backup_users;
+drop table backup_users, tables_priv;

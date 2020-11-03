@@ -2,13 +2,14 @@
 # MDEV-23630: mysqldump to logically dump system tables
 #
 #
-create table backup_users like mysql.user;
-insert into backup_users select * from mysql.user where host not in ('localhost');
-delete from mysql.user where host not in ('localhost');
+create table backup_users like mysql.global_priv;
+create table tables_priv like mysql.tables_priv;
+insert into backup_users select * from mysql.global_priv;
+insert into tables_priv select * from mysql.tables_priv;
+delete from mysql.global_priv where host not in ('localhost');
 flush privileges;
+alter user 'mariadb.sys'@'localhost' ACCOUNT UNLOCK;
 create user USER;
-install plugin /*M!100401 IF NOT EXISTS */ unix_socket soname 'auth_socket.so';;
-alter user USER identified via unix_socket;
 CREATE ROLE role_1;
 CREATE ROLE role_2 WITH ADMIN role_1;
 GRANT SHOW DATABASES ON *.* TO role_1;
@@ -48,9 +49,9 @@ CREATE FUNCTION metaphon RETURNS STRING SONAME "UDF_EXAMPLE_LIB";
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
-INSTALL PLUGIN unix_socket  SONAME 'auth_socket.so';
+CREATE USER `mariadb.sys`@`localhost` PASSWORD EXPIRE;
 CREATE USER `root`@`localhost`;
-CREATE USER `USER`@`%` IDENTIFIED VIA unix_socket;
+CREATE USER `USER`@`%`;
 SELECT COALESCE(CURRENT_ROLE(),'NONE') into @current_role;
 CREATE ROLE IF NOT EXISTS mariadb_dump_import_role;
 GRANT mariadb_dump_import_role TO CURRENT_USER();
@@ -61,6 +62,10 @@ SET ROLE mariadb_dump_import_role;
 /*!80001 CREATE ROLE 'role_2' */;
 /*M!100005 CREATE ROLE 'role_2' WITH ADMIN mariadb_dump_import_role */;
 /*M!100005 GRANT 'role_2' TO 'role_1' WITH ADMIN OPTION */;
+GRANT USAGE ON *.* TO `mariadb.sys`@`localhost`;
+GRANT SELECT, DELETE ON `mysql`.`global_priv` TO `mariadb.sys`@`localhost`;
+/*M!100005 SET DEFAULT ROLE NONE FOR 'mariadb.sys'@'localhost' */;
+/*!80001 ALTER USER 'mariadb.sys'@'localhost' DEFAULT ROLE NONE */;
 GRANT `role_1` TO `root`@`localhost` WITH ADMIN OPTION;
 GRANT ALL PRIVILEGES ON *.* TO `root`@`localhost` WITH GRANT OPTION;
 GRANT PROXY ON ''@'%' TO 'root'@'localhost' WITH GRANT OPTION;
@@ -68,7 +73,7 @@ GRANT PROXY ON ''@'%' TO 'root'@'localhost' WITH GRANT OPTION;
 /*!80001 ALTER USER 'root'@'localhost' DEFAULT ROLE NONE */;
 GRANT `role_1` TO `USER`@`%`;
 GRANT `role_2` TO `USER`@`%`;
-GRANT USAGE ON *.* TO `USER`@`%` IDENTIFIED VIA unix_socket;
+GRANT USAGE ON *.* TO `USER`@`%`;
 /*M!100005 SET DEFAULT ROLE 'role_2' FOR 'USER'@'%' */;
 /*!80001 ALTER USER 'USER'@'%' DEFAULT ROLE 'role_2' */;
 GRANT `role_2` TO `role_1` WITH ADMIN OPTION;
@@ -85,7 +90,7 @@ USE mysql;
 
 LOCK TABLES `column_stats` WRITE;
 /*!40000 ALTER TABLE `column_stats` DISABLE KEYS */;
-INSERT INTO `column_stats` VALUES ('mysql','tz','Time_zone_id','1','5',0.0000,4.0000,98.2500,0,NULL,NULL);
+INSERT INTO `column_stats` VALUES ('mysql','tz','Time_zone_id','1','5',0.0000,4.0000,98.2500,254,'DOUBLE_PREC_HB','\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿');
 /*!40000 ALTER TABLE `column_stats` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -168,8 +173,13 @@ UNLOCK TABLES;
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
-/*M!100401 UNINSTALL PLUGIN IF EXIST unix_socket */;
-INSTALL PLUGIN unix_socket  SONAME 'auth_socket.so';
+DELIMITER |
+/*M!100101 IF current_user()="'mariadb.sys'@'localhost'" THEN
+  SIGNAL SQLSTATE '45000' SET MYSQL_ERRNO=30001, MESSAGE_TEXT="Don't remove current user 'mariadb.sys'@'localhost''";
+END IF */|
+DELIMITER ;
+/*!50701 DROP USER IF EXISTS 'mariadb.sys'@'localhost' */;
+CREATE /*M!100103 OR REPLACE */ USER `mariadb.sys`@`localhost` PASSWORD EXPIRE;
 DELIMITER |
 /*M!100101 IF current_user()="'root'@'localhost'" THEN
   SIGNAL SQLSTATE '45000' SET MYSQL_ERRNO=30001, MESSAGE_TEXT="Don't remove current user 'root'@'localhost''";
@@ -183,7 +193,7 @@ DELIMITER |
 END IF */|
 DELIMITER ;
 /*!50701 DROP USER IF EXISTS 'USER'@'%' */;
-CREATE /*M!100103 OR REPLACE */ USER `USER`@`%` IDENTIFIED VIA unix_socket;
+CREATE /*M!100103 OR REPLACE */ USER `USER`@`%`;
 SELECT COALESCE(CURRENT_ROLE(),'NONE') into @current_role;
 CREATE ROLE IF NOT EXISTS mariadb_dump_import_role;
 GRANT mariadb_dump_import_role TO CURRENT_USER();
@@ -196,6 +206,10 @@ SET ROLE mariadb_dump_import_role;
 /*!80001 CREATE ROLE 'role_2' */;
 /*M!100103 CREATE OR REPLACE ROLE 'role_2' WITH ADMIN mariadb_dump_import_role */;
 /*M!100005 GRANT 'role_2' TO 'role_1' WITH ADMIN OPTION */;
+GRANT USAGE ON *.* TO `mariadb.sys`@`localhost`;
+GRANT SELECT, DELETE ON `mysql`.`global_priv` TO `mariadb.sys`@`localhost`;
+/*M!100005 SET DEFAULT ROLE NONE FOR 'mariadb.sys'@'localhost' */;
+/*!80001 ALTER USER 'mariadb.sys'@'localhost' DEFAULT ROLE NONE */;
 GRANT `role_1` TO `root`@`localhost` WITH ADMIN OPTION;
 GRANT ALL PRIVILEGES ON *.* TO `root`@`localhost` WITH GRANT OPTION;
 GRANT PROXY ON ''@'%' TO 'root'@'localhost' WITH GRANT OPTION;
@@ -203,7 +217,7 @@ GRANT PROXY ON ''@'%' TO 'root'@'localhost' WITH GRANT OPTION;
 /*!80001 ALTER USER 'root'@'localhost' DEFAULT ROLE NONE */;
 GRANT `role_1` TO `USER`@`%`;
 GRANT `role_2` TO `USER`@`%`;
-GRANT USAGE ON *.* TO `USER`@`%` IDENTIFIED VIA unix_socket;
+GRANT USAGE ON *.* TO `USER`@`%`;
 /*M!100005 SET DEFAULT ROLE 'role_2' FOR 'USER'@'%' */;
 /*!80001 ALTER USER 'USER'@'%' DEFAULT ROLE 'role_2' */;
 GRANT `role_2` TO `role_1` WITH ADMIN OPTION;
@@ -221,7 +235,7 @@ USE mysql;
 
 LOCK TABLES `column_stats` WRITE;
 /*!40000 ALTER TABLE `column_stats` DISABLE KEYS */;
-REPLACE INTO `column_stats` VALUES ('mysql','tz','Time_zone_id','1','5',0.0000,4.0000,98.2500,0,NULL,NULL);
+REPLACE INTO `column_stats` VALUES ('mysql','tz','Time_zone_id','1','5',0.0000,4.0000,98.2500,254,'DOUBLE_PREC_HB','\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿');
 /*!40000 ALTER TABLE `column_stats` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -304,9 +318,9 @@ UNLOCK TABLES;
 /*!40014 SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0 */;
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
-INSTALL PLUGIN unix_socket /*M!100401 IF NOT EXISTS */ SONAME 'auth_socket.so';
+CREATE USER IF NOT EXISTS `mariadb.sys`@`localhost` PASSWORD EXPIRE;
 CREATE USER IF NOT EXISTS `root`@`localhost`;
-CREATE USER IF NOT EXISTS `USER`@`%` IDENTIFIED VIA unix_socket;
+CREATE USER IF NOT EXISTS `USER`@`%`;
 SELECT COALESCE(CURRENT_ROLE(),'NONE') into @current_role;
 CREATE ROLE IF NOT EXISTS mariadb_dump_import_role;
 GRANT mariadb_dump_import_role TO CURRENT_USER();
@@ -317,6 +331,10 @@ SET ROLE mariadb_dump_import_role;
 /*!80001 CREATE ROLE IF NOT EXISTS 'role_2' */;
 /*M!100005 CREATE ROLE IF NOT EXISTS 'role_2' WITH ADMIN mariadb_dump_import_role */;
 /*M!100005 GRANT 'role_2' TO 'role_1' WITH ADMIN OPTION */;
+GRANT USAGE ON *.* TO `mariadb.sys`@`localhost`;
+GRANT SELECT, DELETE ON `mysql`.`global_priv` TO `mariadb.sys`@`localhost`;
+/*M!100005 SET DEFAULT ROLE NONE FOR 'mariadb.sys'@'localhost' */;
+/*!80001 ALTER USER 'mariadb.sys'@'localhost' DEFAULT ROLE NONE */;
 GRANT `role_1` TO `root`@`localhost` WITH ADMIN OPTION;
 GRANT ALL PRIVILEGES ON *.* TO `root`@`localhost` WITH GRANT OPTION;
 GRANT PROXY ON ''@'%' TO 'root'@'localhost' WITH GRANT OPTION;
@@ -324,7 +342,7 @@ GRANT PROXY ON ''@'%' TO 'root'@'localhost' WITH GRANT OPTION;
 /*!80001 ALTER USER 'root'@'localhost' DEFAULT ROLE NONE */;
 GRANT `role_1` TO `USER`@`%`;
 GRANT `role_2` TO `USER`@`%`;
-GRANT USAGE ON *.* TO `USER`@`%` IDENTIFIED VIA unix_socket;
+GRANT USAGE ON *.* TO `USER`@`%`;
 /*M!100005 SET DEFAULT ROLE 'role_2' FOR 'USER'@'%' */;
 /*!80001 ALTER USER 'USER'@'%' DEFAULT ROLE 'role_2' */;
 GRANT `role_2` TO `role_1` WITH ADMIN OPTION;
@@ -341,7 +359,7 @@ USE mysql;
 
 LOCK TABLES `column_stats` WRITE;
 /*!40000 ALTER TABLE `column_stats` DISABLE KEYS */;
-INSERT  IGNORE INTO `column_stats` VALUES ('mysql','tz','Time_zone_id','1','5',0.0000,4.0000,98.2500,0,NULL,NULL);
+INSERT  IGNORE INTO `column_stats` VALUES ('mysql','tz','Time_zone_id','1','5',0.0000,4.0000,98.2500,254,'DOUBLE_PREC_HB','\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿ÿ¿');
 /*!40000 ALTER TABLE `column_stats` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -410,13 +428,19 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
-CHECKSUM TABLE mysql.user, mysql.roles_mapping, mysql.time_zone_transition, mysql.plugin,
+SELECT * FROM mysql.global_priv ORDER BY User,Host;
+Host	User	Priv
+%	USER	{"access":0,"plugin":"mysql_native_password","authentication_string":"","password_last_changed":NOW,"default_role":"role_2"}
+localhost	mariadb.sys	{"access":0,"plugin":"mysql_native_password","authentication_string":"","account_locked":false,"password_last_changed":NOW}
+	role_1	{"access":16384,"is_role":true}
+	role_2	{"access":0,"is_role":true}
+localhost	root	{"access":18446744073709551615}
+CHECKSUM TABLE mysql.roles_mapping, mysql.time_zone_transition, mysql.plugin,
 mysql.servers, mysql.func, mysql.innodb_table_stats, mysql.table_stats;
 Table	Checksum
-mysql.user	3159177919
 mysql.roles_mapping	3150178430
 mysql.time_zone_transition	3895294076
-mysql.plugin	1520695737
+mysql.plugin	0
 mysql.servers	2783974349
 mysql.func	3241572444
 mysql.innodb_table_stats	347867921
@@ -439,13 +463,19 @@ DROP SERVER s1;
 set time_zone= @@global.time_zone;
 # Restore from mysqldump
 DROP USER mariadb_test_restore;
-CHECKSUM TABLE mysql.user, mysql.roles_mapping, mysql.time_zone_transition, mysql.plugin,
+SELECT * FROM mysql.global_priv ORDER BY User,Host;
+Host	User	Priv
+%	USER	{"access":0,"plugin":"mysql_native_password","authentication_string":"","password_last_changed":NOW,"default_role":"role_2"}
+localhost	mariadb.sys	{"access":0,"plugin":"mysql_native_password","authentication_string":"","password_last_changed":NOW,"password_lifetime":-1,"default_role":""}
+	role_1	{"access":16384,"is_role":true}
+	role_2	{"access":0,"is_role":true}
+localhost	root	{"access":1073741823,"plugin":"mysql_native_password","authentication_string":"","password_last_changed":NOW,"default_role":""}
+CHECKSUM TABLE mysql.roles_mapping, mysql.time_zone_transition, mysql.plugin,
 mysql.servers, mysql.func, mysql.innodb_table_stats, mysql.table_stats;
 Table	Checksum
-mysql.user	3159177919
 mysql.roles_mapping	3150178430
 mysql.time_zone_transition	3895294076
-mysql.plugin	1520695737
+mysql.plugin	0
 mysql.servers	2783974349
 mysql.func	3241572444
 mysql.innodb_table_stats	347867921
@@ -461,7 +491,7 @@ drop table mysql.tz;
 DROP ROLE role_2;
 DROP ROLE role_1;
 drop user USER;
-uninstall plugin unix_socket;
-insert into mysql.user select * from backup_users;
+replace into mysql.global_priv select * from backup_users;
+replace into mysql.tables_priv select * from tables_priv;
 flush privileges;
-drop table backup_users;
+drop table backup_users, tables_priv;
