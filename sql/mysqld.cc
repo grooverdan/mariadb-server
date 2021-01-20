@@ -2433,7 +2433,12 @@ static void network_init(void)
   struct sockaddr_un	UNIXaddr;
   int	arg;
 #endif
+  int systemd_n;
   DBUG_ENTER("network_init");
+
+  systemd_n= sd_listen_fds(0);
+  if (systemd_n > 0)
+    DBUG_PRINT("general",("Systemd listen_fds is %d", systemd_n));
 
   if (MYSQL_CALLBACK_ELSE(thread_scheduler, init, (), 0))
     unireg_abort(1);			/* purecov: inspected */
@@ -2451,7 +2456,7 @@ static void network_init(void)
   if (!opt_disable_networking)
     DBUG_ASSERT(report_port != 0);
 #endif
-  if (!opt_disable_networking && !opt_bootstrap)
+  if (!opt_disable_networking && !opt_bootstrap && systemd_n==0)
   {
     if (mysqld_port)
       base_ip_sock= activate_tcp_port(mysqld_port);
@@ -2463,7 +2468,7 @@ static void network_init(void)
   /*
   ** Create the UNIX socket
   */
-  if (mysqld_unix_port[0] && !opt_bootstrap)
+  if (mysqld_unix_port[0] && !opt_bootstrap && systemd_n==0)
   {
     size_t port_len;
     DBUG_PRINT("general",("UNIX Socket is %s",mysqld_unix_port));
@@ -6177,6 +6182,7 @@ void handle_connections_sockets()
   uint error_count=0;
   struct sockaddr_storage cAddr;
   int retval;
+  int systemd_n;
 #ifdef HAVE_POLL
   int socket_count= 0;
   struct pollfd fds[3]; // for ip_sock, unix_sock and extra_ip_sock
@@ -6194,6 +6200,27 @@ void handle_connections_sockets()
 #endif
 
   DBUG_ENTER("handle_connections_sockets");
+
+  systemd_n= sd_listen_fds(1);
+  if (systemd_n < 0)
+  {
+    my_error(/*ER_SYSTEMD_LISTEN_FDS*/0, MYF(0), 0, -systemd_n);
+  }
+  else if (systemd_n > 0)
+  {
+    if (systemd_n--)
+    {
+      unix_sock= mysql_socket_fd(SD_LISTEN_FDS_START);
+    }
+    if (systemd_n--)
+    {
+      base_ip_sock= mysql_socket_fd(SD_LISTEN_FDS_START + 1);
+    }
+    if (systemd_n--)
+    {
+      extra_ip_sock= mysql_socket_fd(SD_LISTEN_FDS_START + 2);
+    }
+  }
 
   if (mysql_socket_getfd(base_ip_sock) != INVALID_SOCKET)
   {

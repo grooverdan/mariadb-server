@@ -33,9 +33,13 @@
   sd_notifyf(0, "STATUS=" FMTSTR "\nEXTEND_TIMEOUT_USEC=%u\n", ##__VA_ARGS__, INTERVAL * 1000000)
 
 #else
+#define sd_listen_fds(X) (0)
 #define sd_notify(X, Y)
 #define sd_notifyf(E, F, ...)
 #define service_manager_extend_timeout(I, FMTSTR, ...)
+#define SD_LISTEN_FDS_START (0)
+/* fixme*/
+#define ER_SYSTEMD_LISTEN_FDS 0
 #endif
 
 #endif /* MY_SERVICE_MANAGER_INCLUDED */

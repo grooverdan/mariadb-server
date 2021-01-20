@@ -304,10 +304,10 @@ inline_mysql_socket_set_state(MYSQL_SOCKET socket, enum PSI_socket_state state)
 */
 
 #ifdef HAVE_PSI_SOCKET_INTERFACE
-  #define mysql_socket_fd(K, F) \
-    inline_mysql_socket_fd(K, F)
+  #define mysql_socket_fd(F) \
+    inline_mysql_socket_fd(__FILE__, __LINE__, F)
 #else
-  #define mysql_socket_fd(K, F) \
+  #define mysql_socket_fd(F) \
     inline_mysql_socket_fd(F)
 #endif
 
@@ -591,22 +591,26 @@ static inline MYSQL_SOCKET
 inline_mysql_socket_fd
 (
 #ifdef HAVE_PSI_SOCKET_INTERFACE
-  PSI_socket_key key,
+  const char *src_file, uint src_line,
 #endif
   int fd)
 {
   MYSQL_SOCKET mysql_socket= MYSQL_INVALID_SOCKET;
   mysql_socket.fd= fd;
-#ifdef HAVE_PSI_SOCKET_INTERFACE
+
   if (likely(mysql_socket.fd != INVALID_SOCKET))
   {
+#ifdef HAVE_PSI_SOCKET_INTERFACE
+/*    PSI_socket_locker_state state;
+    PSI_socket_locker *locker;
+    locker= PSI_SOCKET_CALL(init_socket)
     mysql_socket.m_psi= PSI_SOCKET_CALL(init_socket)
-      (key, (const my_socket*)&mysql_socket.fd, NULL, 0);
+      (key, (const my_socket*)&mysql_socket.fd, addr, *addr_len); */
+#endif
 #if defined(HAVE_FCNTL) && defined(FD_CLOEXEC)
     (void) fcntl(mysql_socket.fd, F_SETFD, FD_CLOEXEC);
 #endif
   }
-#endif
 
   return mysql_socket;
 }
