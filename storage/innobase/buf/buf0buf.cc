@@ -1373,14 +1373,15 @@ static void buf_block_free_mutexes(buf_block_t* block)
 }
 
 /** Create the hash table.
-@param n  the lower bound of n_cells */
-void buf_pool_t::page_hash_table::create(ulint n)
+@param n  the lower bound of n_cells
+@return array */
+hash_cell_t* buf_pool_t::page_hash_table::create(ulint n)
 {
   n_cells= ut_find_prime(n);
   const size_t size= pad(n_cells) * sizeof *array;
-  void* v= aligned_malloc(size, CPU_LEVEL1_DCACHE_LINESIZE);
-  memset(v, 0, size);
+  void* v= my_calloc_aligned(size, CPU_LEVEL1_DCACHE_LINESIZE);
   array= static_cast<hash_cell_t*>(v);
+  return array;
 }
 
 /** Create the buffer pool.
@@ -1829,7 +1830,10 @@ inline bool buf_pool_t::withdraw_blocks()
 inline void buf_pool_t::resize_hash()
 {
   page_hash_table *new_page_hash= UT_NEW_NOKEY(page_hash_table());
-  new_page_hash->create(2 * buf_pool.curr_size);
+  if (!new_page_hash->create(2 * buf_pool.curr_size))
+  {
+    /* FIXME: FAIL OOM */
+  }
   new_page_hash->write_lock_all();
 
   for (auto i= page_hash.pad(page_hash.n_cells); i--; )

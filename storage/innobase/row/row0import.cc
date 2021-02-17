@@ -3746,11 +3746,20 @@ fil_tablespace_iterate(
 	can determine the page size and zip_size (if it is compressed).
 	We allocate an extra page in case it is a compressed table. */
 
-	byte*	page = static_cast<byte*>(aligned_malloc(2 * srv_page_size,
-							 srv_page_size));
-
+	byte*	page = static_cast<byte*>(my_malloc_aligned(2 * srv_page_size,
+							    srv_page_size));
 	buf_block_t* block = reinterpret_cast<buf_block_t*>
 		(ut_zalloc_nokey(sizeof *block));
+
+	if (!page) {
+		err = DB_OUT_OF_MEMORY;
+		goto cleanup_file;
+	}
+	if (!block) {
+		err = DB_OUT_OF_MEMORY;
+		goto cleanup_page;
+	}
+
 	block->frame = page;
         block->page.init(BUF_BLOCK_FILE_PAGE, page_id_t(~0ULL), 1);
 
@@ -3794,30 +3803,34 @@ fil_tablespace_iterate(
 
 		/* Add an extra page for compressed page scratch area. */
 		iter.io_buffer = static_cast<byte*>(
-			aligned_malloc((1 + iter.n_io_buffers)
-				       << srv_page_size_shift, srv_page_size));
+			my_malloc_aligned((1 + iter.n_io_buffers)
+					  << srv_page_size_shift, srv_page_size));
 
 		iter.crypt_io_buffer = iter.crypt_data
 			? static_cast<byte*>(
-				aligned_malloc((1 + iter.n_io_buffers)
-					       << srv_page_size_shift,
-					       srv_page_size))
+				my_malloc_aligned((1 + iter.n_io_buffers)
+						  << srv_page_size_shift,
+						  srv_page_size))
 			: NULL;
 
-		if (block->page.zip.ssize) {
-			ut_ad(iter.n_io_buffers == 1);
-			block->frame = iter.io_buffer;
-			block->page.zip.data = block->frame + srv_page_size;
+		if (!iter.io_buffer || (iter.crypt_data && !iter.crypt_io_buffer)) {
+			err = DB_OUT_OF_MEMORY;
+		} else {
+			if (block->page.zip.ssize) {
+				ut_ad(iter.n_io_buffers == 1);
+				block->frame = iter.io_buffer;
+				block->page.zip.data = block->frame + srv_page_size;
+			}
+
+			err = fil_iterate(iter, block, callback);
+
+			if (iter.crypt_data) {
+				fil_space_destroy_crypt_data(&iter.crypt_data);
+			}
 		}
 
-		err = fil_iterate(iter, block, callback);
-
-		if (iter.crypt_data) {
-			fil_space_destroy_crypt_data(&iter.crypt_data);
-		}
-
-		aligned_free(iter.crypt_io_buffer);
-		aligned_free(iter.io_buffer);
+		my_free_aligned(iter.crypt_io_buffer);
+		my_free_aligned(iter.io_buffer);
 	}
 
 	if (err == DB_SUCCESS) {
@@ -3831,11 +3844,17 @@ fil_tablespace_iterate(
 		}
 	}
 
+	ut_free(block);
+
+cleanup_page:
+
+	my_free_aligned(page);
+
+cleanup_file:
+
 	os_file_close(file);
 
-	aligned_free(page);
 	ut_free(filepath);
-	ut_free(block);
 
 	return(err);
 }
