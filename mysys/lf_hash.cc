@@ -112,8 +112,10 @@ retry:
 
     cur_hashnr= cursor->curr->hashnr;
     cur_keylen= cursor->curr->keylen;
-    /* The key element needs to be aligned, not necessary what it points to */
+    /* The key element needs to be aligned, not necessary what it points to. Unknown Windows failure */
+#ifndef _MSC_VER
     my_assume_aligned<sizeof(const uchar *)>(&cursor->curr->key);
+#endif
     cur_key= cursor->curr->key;
 
     do {
