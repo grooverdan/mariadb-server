@@ -281,6 +281,8 @@ void *my_malloc_aligned(size_t size, size_t alignment)
 #else
   ptr= malloc(size);
 #endif
+  DBUG_ASSERT(alignment && !(alignment & (alignment - 1)));
+  DBUG_ASSERT(((size_t)ptr) % alignment == 0);
 
   DBUG_RETURN(ptr);
 }
