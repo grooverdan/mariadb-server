@@ -510,7 +510,7 @@ void CorruptedPages::zero_out_free_pages()
       static_cast<byte *>(my_calloc_aligned(srv_page_size, srv_page_size));
 
   if (!zero_page)
-      die("Can't allocate %zu bytes of memory", srv_page_size);
+      die("Can't allocate %lu bytes of memory", srv_page_size);
 
   ut_a(!pthread_mutex_lock(&m_mutex));
   for (container_t::const_iterator space_it= m_spaces.begin();
@@ -3556,7 +3556,7 @@ static dberr_t xb_assign_undo_space_start()
 		(my_malloc_aligned(srv_page_size, srv_page_size));
 
 	if (!page) {
-		msg("Allocating %zu bytes of memory.\n", srv_page_size);
+		msg("Allocating %lu bytes of memory.\n", srv_page_size);
 		error = DB_OUT_OF_MEMORY;
 		goto func_exit;
 	}
@@ -5097,7 +5097,7 @@ xtrabackup_apply_delta(
 		(my_malloc_aligned(page_size / 4 * page_size, page_size));
 
 	if (!incremental_buffer) {
-		msg("Allocating %zu bytes of memory.", page_size);
+		msg("Allocating %zu bytes of memory.", page_size / 4 * page_size);
 		goto error;
 	}
 	msg("Applying %s to %s...", src_path, dst_path);
