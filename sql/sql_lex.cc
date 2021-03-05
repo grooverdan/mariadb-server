@@ -9694,7 +9694,10 @@ void Lex_select_lock::set_to(SELECT_LEX *sel)
       if (update_lock)
       {
         sel->lock_type= TL_WRITE;
-        sel->set_lock_for_tables(TL_WRITE, false);
+        if (skip_locked)
+          sel->set_lock_for_tables(TL_WRITE, false, TL_X_LOCK_SKIP_LOCKED);
+        else
+          sel->set_lock_for_tables(TL_WRITE, false);
       }
       else
       {

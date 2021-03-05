@@ -901,6 +901,7 @@ End SQL_MODE_ORACLE_SPECIFIC */
 %token  <kwd>  LEVEL_SYM
 %token  <kwd>  LIST_SYM
 %token  <kwd>  LOCAL_SYM                     /* SQL-2003-R */
+%token  <kwd>  LOCKED_SYM
 %token  <kwd>  LOCKS_SYM
 %token  <kwd>  LOGFILE_SYM
 %token  <kwd>  LOGS_SYM
@@ -1061,6 +1062,7 @@ End SQL_MODE_ORACLE_SPECIFIC */
 %token  <kwd>  SHUTDOWN
 %token  <kwd>  SIGNED_SYM
 %token  <kwd>  SIMPLE_SYM                    /* SQL-2003-N */
+%token  <kwd>  SKIP_SYM
 %token  <kwd>  SLAVE
 %token  <kwd>  SLAVES
 %token  <kwd>  SLAVE_POS_SYM
@@ -1377,7 +1379,7 @@ End SQL_MODE_ORACLE_SPECIFIC */
         udf_type opt_local opt_no_write_to_binlog
         opt_temporary all_or_any opt_distinct opt_glimit_clause
         opt_ignore_leaves fulltext_options union_option
-        opt_not
+        opt_not opt_skip_locked
         transaction_access_mode_types
         opt_natural_language_mode opt_query_expansion
         opt_ev_status opt_ev_on_completion ev_on_completion opt_ev_comment
@@ -9129,21 +9131,37 @@ opt_select_lock_type:
         }
         ;
 
+opt_skip_locked:
+        /* empty */
+        {
+        }
+        | SKIP_SYM LOCKED_SYM
+        {
+          $$= 1;
+        }
 
 opt_lock_wait_timeout_new:
         /* empty */
         {
           $$.empty();
         }
-        | WAIT_SYM ulong_num
+        | WAIT_SYM ulong_num opt_skip_locked
         {
           $$.defined_timeout= TRUE;
           $$.timeout= $2;
+          $$.skip_locked= $3;
         }
-        | NOWAIT_SYM
+        | NOWAIT_SYM opt_skip_locked
         {
           $$.defined_timeout= TRUE;
           $$.timeout= 0;
+          $$.skip_locked= $2;
+        }
+        | SKIP_SYM LOCKED_SYM
+        {
+          $$.defined_timeout= TRUE;
+          $$.timeout= 0;
+          $$.skip_locked= 1;
         }
       ;
 
@@ -15690,6 +15708,7 @@ keyword_sp_var_and_label:
         | LESS_SYM
         | LEVEL_SYM
         | LIST_SYM
+        | LOCKED_SYM
         | LOCKS_SYM
         | LOGFILE_SYM
         | LOGS_SYM
@@ -15818,6 +15837,7 @@ keyword_sp_var_and_label:
         | SETVAL_SYM
         | SIMPLE_SYM
         | SHARE_SYM
+        | SKIP_SYM
         | SLAVE_POS_SYM
         | SLOW
         | SNAPSHOT_SYM

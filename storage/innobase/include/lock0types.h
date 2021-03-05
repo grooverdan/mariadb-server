@@ -49,6 +49,35 @@ enum lock_mode {
 	LOCK_NONE_UNSET = 7
 };
 
+/* X-lock modes : these are complements to LOCK_X
+	LOCK_X + LOCK_X_SKIP_LOCKED is for SELECT ... FOR UPDATE SKIP LOCKED.
+	LOCK_X_REGULAR is the default value, which means the LOCK_X is regular.
+	It will be ignored if X-lock modes combine with other lock modes.
+
+	There are a couple of lock modes in InnoDB but basically there are two
+	categories: shared lock (LOCK_S) and exclusive lock (LOCK_X) (let's
+	ignore other lock modes for now). These lock modes define both the
+	locks *on* a row and the behavior when *adding* a lock on a row that
+	has been locked, i.e. when a lock is added on a row, this lock can be
+	LOCK_S or LOCK_X , and when a transaction is *adding* a LOCK_S /
+	LOCK_X on a row that has been locked by LOCK_S / LOCK_X (by other
+	transactions), it either can lock it or get blocked on it. But SKIP
+	LOCKED is *not* a new lock mode, i.e, a lock added on a row
+	is still either LOCK_S or LOCK_X, the new sub lock mode
+	LOCK_X_SKIP_LOCKED only defines the *behavior* that
+	when a transaction is trying to put a LOCK_X on a row has been locked
+	with a LOCK_X already (by another transaction), it won't be blocked,
+	instead it will skip it to find the next match if the sub mode is
+	LOCK_X_SKIP_LOCKED. So in a nutshell, this new sub mode
+	LOCK_X_SKIP_LOCKED introduce new non-blocking behavior when locking
+	conflict happens, it is *not* a new lock mode.
+*/
+enum x_lock_mode {
+	LOCK_X_REGULAR = 0, /* regular */
+	LOCK_X_SKIP_LOCKED, /* skip locked */
+	LOCK_X_MODE_COUNT
+};
+
 /** A table lock */
 struct lock_table_t {
 	dict_table_t*	table;		/*!< database table in dictionary

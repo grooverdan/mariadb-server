@@ -230,11 +230,21 @@ public:
 
 	uint lock_count(void) const override;
 
-	THR_LOCK_DATA** store_lock(
+	THR_LOCK_DATA** store_lock_with_x_type(
 		THD*			thd,
 		THR_LOCK_DATA**		to,
-		thr_lock_type		lock_type) override;
+		thr_lock_type		lock_type,
+		thr_x_lock_type x_lock_type) override;
 
+	THR_LOCK_DATA **store_lock(THD *thd, THR_LOCK_DATA **to,
+				thr_lock_type lock_type) override
+	{
+		return store_lock_with_x_type(thd, to, lock_type,
+										TL_X_LOCK_REGULAR);
+	}
+	bool support_x_lock_type() override {
+		return true;
+	}
 	void init_table_handle_for_HANDLER() override;
 
 	void get_auto_increment(

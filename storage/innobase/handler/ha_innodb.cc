@@ -3112,6 +3112,7 @@ ha_innobase::init_table_handle_for_HANDLER(void)
 
 	m_prebuilt->select_lock_type = LOCK_NONE;
 	m_prebuilt->stored_select_lock_type = LOCK_NONE;
+	m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
 
 	/* Always fetch all columns in the index record */
 
@@ -14602,6 +14603,7 @@ ha_innobase::check(
 		dtuple_set_n_fields(m_prebuilt->search_tuple, 0);
 
 		m_prebuilt->select_lock_type = LOCK_NONE;
+		m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
 
 		/* Scan this index. */
 		if (dict_index_is_spatial(index)) {
@@ -15215,6 +15217,7 @@ ha_innobase::start_stmt(
 			init_table_handle_for_HANDLER();
 			m_prebuilt->select_lock_type = LOCK_X;
 			m_prebuilt->stored_select_lock_type = LOCK_X;
+			m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
 			error = row_lock_table(m_prebuilt);
 
 			if (error != DB_SUCCESS) {
@@ -15242,6 +15245,7 @@ ha_innobase::start_stmt(
 		no lock for consistent read (plain SELECT). */
 
 		m_prebuilt->select_lock_type = LOCK_NONE;
+		m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
 	} else {
 		/* Not a consistent read: restore the
 		select_lock_type value. The value of
@@ -15421,9 +15425,13 @@ ha_innobase::external_lock(
 	if (lock_type == F_WRLCK) {
 
 		/* If this is a SELECT, then it is in UPDATE TABLE ...
-		or SELECT ... FOR UPDATE */
+		or SELECT ... FOR UPDATE (NOWAIT or SKIP LOCKED) */
+
 		m_prebuilt->select_lock_type = LOCK_X;
 		m_prebuilt->stored_select_lock_type = LOCK_X;
+	}
+	else if (lock_type != F_UNLCK) {
+		DBUG_ASSERT(prebuilt->select_x_lock_type == LOCK_X_REGULAR);
 	}
 
 	if (lock_type != F_UNLCK) {
@@ -15448,6 +15456,7 @@ ha_innobase::external_lock(
 
 			m_prebuilt->select_lock_type = LOCK_S;
 			m_prebuilt->stored_select_lock_type = LOCK_S;
+			m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
 		}
 
 		/* Starting from 4.1.9, no InnoDB table lock is taken in LOCK
@@ -15710,16 +15719,17 @@ end of an SQL statement.
 @return pointer to the current element in the 'to' array. */
 
 THR_LOCK_DATA**
-ha_innobase::store_lock(
+ha_innobase::store_lock_with_x_type(
 /*====================*/
 	THD*			thd,		/*!< in: user thread handle */
 	THR_LOCK_DATA**		to,		/*!< in: pointer to the current
 						element in an array of pointers
 						to lock structs;
 						only used as return value */
-	thr_lock_type		lock_type)	/*!< in: lock type to store in
+	thr_lock_type		lock_type,	/*!< in: lock type to store in
 						'lock'; this may also be
 						TL_IGNORE */
+	thr_x_lock_type	x_lock_type)		/*!< in: x_lock type to store*/
 {
 	/* Note that trx in this function is NOT necessarily m_prebuilt->trx
 	because we call update_thd() later, in ::external_lock()! Failure to
@@ -15788,9 +15798,11 @@ ha_innobase::store_lock(
 		if (trx->isolation_level == TRX_ISO_SERIALIZABLE) {
 			m_prebuilt->select_lock_type = LOCK_S;
 			m_prebuilt->stored_select_lock_type = LOCK_S;
+			m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
 		} else {
 			m_prebuilt->select_lock_type = LOCK_NONE;
 			m_prebuilt->stored_select_lock_type = LOCK_NONE;
+			m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
 		}
 
 	/* Check for DROP TABLE */
@@ -15851,18 +15863,27 @@ ha_innobase::store_lock(
 
 			m_prebuilt->select_lock_type = LOCK_NONE;
 			m_prebuilt->stored_select_lock_type = LOCK_NONE;
+			m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
 		} else {
 			m_prebuilt->select_lock_type = LOCK_S;
 			m_prebuilt->stored_select_lock_type = LOCK_S;
+			m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
 		}
 
 	} else if (lock_type != TL_IGNORE) {
 
 		/* We set possible LOCK_X value in external_lock, not yet
-		here even if this would be SELECT ... FOR UPDATE */
+		here even if this would be SELECT ... FOR UPDATE (SKIP LOCKED) */
 
 		m_prebuilt->select_lock_type = LOCK_NONE;
 		m_prebuilt->stored_select_lock_type = LOCK_NONE;
+		if (lock_type == TL_WRITE &&
+			x_lock_type == TL_X_LOCK_SKIP_LOCKED) {
+			m_prebuilt->select_x_lock_type = LOCK_X_SKIP_LOCKED;
+		} else {
+			m_prebuilt->select_x_lock_type = LOCK_X_REGULAR;
+		}
+
 	}
 
 	if (!trx_is_started(trx)
