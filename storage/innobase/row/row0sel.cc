@@ -5394,8 +5394,8 @@ requires_clust_rec:
 			}
 			err = DB_SUCCESS;
 			break;
+		/*case DB_LOCK_WAIT_TIMEOUT:*/
 		case DB_LOCK_WAIT:
-		case DB_LOCK_WAIT_TIMEOUT:
 			if (prebuilt->select_x_lock_type == LOCK_X_SKIP_LOCKED) {
 				err = DB_SUCCESS;
 				goto next_rec;
