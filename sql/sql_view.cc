@@ -444,7 +444,7 @@ bool mysql_create_view(THD *thd, TABLE_LIST *views,
   */
   if (lex->current_select->lock_type != TL_READ_DEFAULT)
   {
-    lex->current_select->set_lock_for_tables(TL_READ_DEFAULT, false);
+    lex->current_select->set_lock_for_tables(TL_READ_DEFAULT, false, false);
     view->mdl_request.set_type(MDL_EXCLUSIVE);
   }
 

@@ -177,7 +177,7 @@ struct st_join_table;
 typedef struct st_reginfo {		/* Extra info about reg */
   struct st_join_table *join_tab;	/* Used by SELECT() */
   enum thr_lock_type lock_type;		/* How database is used */
-  enum thr_x_lock_type x_lock_type; /* X-lock type */
+  bool skip_locked;
   bool not_exists_optimize;
   /*
     TRUE <=> range optimizer found that there is no rows satisfying
@@ -815,7 +815,7 @@ public:
 
   void empty()
   {
-    defined_lock= update_lock= defined_timeout= FALSE;
+    defined_lock= update_lock= defined_timeout= skip_locked= FALSE;
     timeout= 0;
   }
   void set_to(st_select_lex *sel);

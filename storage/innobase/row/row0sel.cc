@@ -5161,12 +5161,12 @@ no_gap_lock:
 			case DB_LOCK_WAIT:
 				ut_ad(!dict_index_is_spatial(index));
 				err = DB_SUCCESS;
-				if (prebuilt->select_x_lock_type == LOCK_X_SKIP_LOCKED) {
+				if (prebuilt->skip_locked) {
 					goto next_rec;
 				}
 				break;
 		        case DB_LOCK_WAIT_TIMEOUT:
-				if (prebuilt->select_x_lock_type == LOCK_X_SKIP_LOCKED) {
+				if (prebuilt->skip_locked) {
 					err = DB_SUCCESS;
 					goto next_rec;
 				}
@@ -5192,7 +5192,7 @@ no_gap_lock:
 			}
 			break;
 		case DB_LOCK_WAIT_TIMEOUT:
-			if (prebuilt->select_x_lock_type == LOCK_X_SKIP_LOCKED) {
+			if (prebuilt->skip_locked) {
 				err = DB_SUCCESS;
 				goto next_rec;
 			}
@@ -5371,7 +5371,7 @@ requires_clust_rec:
 						      &offsets, &heap,
 						      need_vrow ? &vrow : NULL,
 						      &mtr);
-		if (prebuilt->select_x_lock_type == LOCK_X_SKIP_LOCKED &&
+		if (prebuilt->skip_locked &&
 		    err == DB_LOCK_WAIT) {
 			err = lock_trx_handle_wait(trx);
 		}
@@ -5394,9 +5394,9 @@ requires_clust_rec:
 			}
 			err = DB_SUCCESS;
 			break;
-		/*case DB_LOCK_WAIT_TIMEOUT:*/
+		case DB_LOCK_WAIT_TIMEOUT:
 		case DB_LOCK_WAIT:
-			if (prebuilt->select_x_lock_type == LOCK_X_SKIP_LOCKED) {
+			if (prebuilt->skip_locked) {
 				err = DB_SUCCESS;
 				goto next_rec;
 			}

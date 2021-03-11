@@ -9134,6 +9134,7 @@ opt_select_lock_type:
 opt_skip_locked:
         /* empty */
         {
+          $$= 0;
         }
         | SKIP_SYM LOCKED_SYM
         {
@@ -12888,7 +12889,7 @@ insert:
           }
           insert_start insert_lock_option opt_ignore opt_into insert_table
           {
-            Select->set_lock_for_tables($4, true);
+            Select->set_lock_for_tables($4, true, false);
           }
           insert_field_spec opt_insert_update opt_returning
           stmt_end
@@ -12905,7 +12906,7 @@ replace:
           }
           insert_start replace_lock_option opt_into insert_table
           {
-            Select->set_lock_for_tables($4, true);
+            Select->set_lock_for_tables($4, true, false);
           }
           insert_field_spec opt_returning
           stmt_end
@@ -13201,7 +13202,7 @@ update:
               be too pessimistic. We will decrease lock level if possible in
               mysql_multi_update().
             */
-            slex->set_lock_for_tables($3, slex->table_list.elements == 1);
+            slex->set_lock_for_tables($3, slex->table_list.elements == 1, false);
           }
           opt_where_clause opt_order_clause delete_limit_clause
           {

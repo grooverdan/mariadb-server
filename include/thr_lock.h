@@ -47,6 +47,8 @@ enum thr_lock_type { TL_IGNORE=-1,
 		     TL_READ_HIGH_PRIORITY,
 		     /* READ, Don't allow concurrent insert */
 		     TL_READ_NO_INSERT,
+		     /* READ, but skip locks if found */
+		     TL_READ_SKIP_LOCKED,
 		     /* 
 			Write lock, but allow other threads to read / write.
 			Used by BDB tables in MySQL to mark that someone is
@@ -67,20 +69,12 @@ enum thr_lock_type { TL_IGNORE=-1,
                      TL_WRITE_DEFAULT,
 		     /* WRITE lock that has lower priority than TL_READ */
 		     TL_WRITE_LOW_PRIORITY,
+		     /* WRITE, but skip locks if found */
+		     TL_WRITE_SKIP_LOCKED,
 		     /* Normal WRITE lock */
 		     TL_WRITE,
 		     /* Abort new lock request with an error */
 		     TL_WRITE_ONLY};
-
-/* X-lock types : these are complements to TL_WRITE
-   TL_WRITE + TL_X_LOCK_SKIP_LOCKED is for SELECT ... FOR UPDATE SKIP LOCKED.
-   TL_WRITE + TL_X_LOCK_NOWAIT is for SELECT ... FOR UPDATE NOWAIT.
-   TL_X_LOCK_REGULAR is the default value, which means the TL_WRITE is regular.
-   It will be ignored if X-lock types combine with other lock types.
-*/
-enum thr_x_lock_type { TL_X_LOCK_REGULAR = 0,
-					TL_X_LOCK_SKIP_LOCKED,
-					TL_X_LOCK_TYPE_COUNT };
 
 enum enum_thr_lock_result { THR_LOCK_SUCCESS= 0, THR_LOCK_ABORTED= 1,
                             THR_LOCK_WAIT_TIMEOUT= 2, THR_LOCK_DEADLOCK= 3 };

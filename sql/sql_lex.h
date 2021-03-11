@@ -1411,7 +1411,7 @@ public:
   List<Item>* get_item_list();
   ulong get_table_join_options();
   void set_lock_for_tables(thr_lock_type lock_type, bool for_update,
-		  	  	  	  	   thr_x_lock_type x_lock_type = TL_X_LOCK_REGULAR);
+                           bool skip_locks);
   /*
     This method created for reiniting LEX in mysql_admin_table() and can be
     used only if you are going remove all SELECT_LEX & units except belonger

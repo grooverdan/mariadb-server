@@ -9693,16 +9693,13 @@ void Lex_select_lock::set_to(SELECT_LEX *sel)
       sel->parent_lex->safe_to_cache_query= 0;
       if (update_lock)
       {
-        sel->lock_type= TL_WRITE;
-        if (skip_locked)
-          sel->set_lock_for_tables(TL_WRITE, false, TL_X_LOCK_SKIP_LOCKED);
-        else
-          sel->set_lock_for_tables(TL_WRITE, false);
+        sel->lock_type= skip_locked ? TL_WRITE_DEFAULT : TL_WRITE;
+        sel->set_lock_for_tables(sel->lock_type, false, skip_locked);
       }
       else
       {
         sel->lock_type= TL_READ_WITH_SHARED_LOCKS;
-        sel->set_lock_for_tables(TL_READ_WITH_SHARED_LOCKS, false);
+        sel->set_lock_for_tables(TL_READ_WITH_SHARED_LOCKS, false, skip_locked);
       }
     }
   }

@@ -3299,7 +3299,9 @@ thr_lock_type read_lock_type_for_table(THD *thd,
       !(is_update_query(prelocking_ctx->sql_command) ||
         (routine_modifies_data && table_list->prelocking_placeholder) ||
         (thd->locked_tables_mode > LTM_LOCK_TABLES)))
-    return TL_READ;
+    return (table_list->skip_locked &&
+             table_list->table->file->ha_table_flags() & HA_CAN_SKIP_LOCKED) ?
+	   TL_READ_SKIP_LOCKED : TL_READ;
   else
     return TL_READ_NO_INSERT;
 }
@@ -4422,19 +4424,16 @@ restart:
     if (tbl && tables->lock_type != TL_UNLOCK && !thd->locked_tables_mode)
     {
       if (tables->lock_type == TL_WRITE_DEFAULT)
-        tbl->reginfo.lock_type= thd->update_lock_default;
+        tbl->reginfo.lock_type= (tables->skip_locked &&
+                                  tables->table->file->ha_table_flags() & HA_CAN_SKIP_LOCKED) ?
+	                        TL_WRITE_SKIP_LOCKED : thd->update_lock_default;
       else if (tables->lock_type == TL_READ_DEFAULT)
           tbl->reginfo.lock_type=
             read_lock_type_for_table(thd, thd->lex, tables,
                                      some_routine_modifies_data);
       else
         tbl->reginfo.lock_type= tables->lock_type;
-
-      /* Copy the X-lock type */
-      tbl->reginfo.x_lock_type = tables->x_lock_type;
-      if (tables->lock_type != TL_WRITE &&
-          tables->lock_type != TL_WRITE_DEFAULT)
-        DBUG_ASSERT(tbl->reginfo.x_lock_type == TL_X_LOCK_REGULAR);
+      tbl->reginfo.skip_locked= tables->skip_locked;
     }
 #ifdef WITH_WSREP
     /*

@@ -4044,7 +4044,7 @@ enum open_frm_error open_table_from_share(THD *thd, TABLE_SHARE *share,
   }
 
   outparam->reginfo.lock_type= TL_UNLOCK;
-  outparam->reginfo.x_lock_type= TL_X_LOCK_REGULAR;
+  outparam->reginfo.skip_locked= false;
   outparam->current_lock= F_UNLCK;
   records=0;
   if ((db_stat & HA_OPEN_KEYFILE) || (prgflag & DELAYED_OPEN))
@@ -5491,9 +5491,9 @@ void TABLE::init(THD *thd, TABLE_LIST *tl)
   fulltext_searched= 0;
   file->ft_handler= 0;
   reginfo.impossible_range= 0;
-  reginfo.x_lock_type= TL_X_LOCK_REGULAR;
   reginfo.join_tab= NULL;
   reginfo.not_exists_optimize= FALSE;
+  reginfo.skip_locked= false;
   created= TRUE;
   cond_selectivity= 1.0;
   cond_selectivity_sampling_explain= NULL;
