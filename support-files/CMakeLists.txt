@@ -53,11 +53,9 @@ ENDIF()
 
 IF(UNIX AND NOT WITHOUT_SERVER)
   SET(prefix ${CMAKE_INSTALL_PREFIX})
-  FOREACH(script mysqld_multi.server binary-configure wsrep_notify)
+  FOREACH(script mysqld_multi.server mariadb.logrotate binary-configure wsrep_notify)
     CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/${script}.sh
                    ${CMAKE_CURRENT_BINARY_DIR}/${script} @ONLY )
-    CONFIGURE_FILE(${CMAKE_CURRENT_SOURCE_DIR}/mariadb.logrotate.in
-                   ${CMAKE_CURRENT_BINARY_DIR}/mariadb.logrotate @ONLY )
     INSTALL(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/${script}
       DESTINATION ${inst_location} COMPONENT Server_Scripts)
   ENDFOREACH()
