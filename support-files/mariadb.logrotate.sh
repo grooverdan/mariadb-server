@@ -6,7 +6,7 @@
 # Read https://mariadb.com/kb/en/error-log/ to learn more about logging and
 # https://mariadb.com/kb/en/rotating-logs-on-unix-and-linux/ about rotating logs.
 
-@localstatedir@/mysqld.log @logdir@/mysql.log @localstatedir@/mariadb.log @logdir@/mysql-slow.log @logdir@/mariadb-slow.log @logdir@/error.log {
+@localstatedir@/mysqld.log @localstatedir@/mariadb.log @logdir@/*.log {
 
   # If any of the files listed above is missing, skip them silently without
   # emitting any errors

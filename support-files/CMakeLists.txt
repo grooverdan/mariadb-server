@@ -33,7 +33,11 @@ ELSE()
   SET(HOSTNAME "uname -n")
 
   # Define directly here, as cmake/install_layout.cmake has no LOGDIR to be inherited
-  SET(logdir "/var/log/mysql")
+  IF(RPM)
+    SET(logdir "/var/log/mariadb")
+  ELSE()
+    SET(logdir "/var/log/mysql")
+  ENDIF()
 ENDIF()
 
 # XXX: shouldn't we just have variables for all this stuff and centralise
