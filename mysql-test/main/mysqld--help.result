@@ -1357,6 +1357,9 @@ The following specify which files/extra groups are read (specified before remain
  The number of cached table definitions
  --table-open-cache=# 
  The number of cached open tables
+ --table-open-cache-instance-threshold=# 
+ The percent of mutex acquisitions that must be
+ immediately served before it is considered contested.
  --table-open-cache-instances=# 
  Maximum number of table cache instances
  --tc-heuristic-recover=name 
@@ -1820,6 +1823,7 @@ sync-relay-log-info 10000
 sysdate-is-now FALSE
 system-versioning-alter-history ERROR
 table-definition-cache 400
+table-open-cache-instance-threshold 20
 tc-heuristic-recover OFF
 tcp-keepalive-interval 0
 tcp-keepalive-probes 0

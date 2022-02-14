@@ -56,6 +56,8 @@
 ulong tdc_size; /**< Table definition cache threshold for LRU eviction. */
 ulong tc_size; /**< Table cache threshold for LRU eviction. */
 uint32 tc_instances;
+uint32 tc_threshold;
+static my_time_t t_last;
 static std::atomic<uint32_t> tc_active_instances(1);
 static std::atomic<bool> tc_contention_warning_reported;
 
@@ -149,27 +151,38 @@ struct Table_cache_instance
   /**
     Lock table cache mutex and check contention.
 
-    Instance is considered contested if more than 20% of mutex acquisiotions
-    can't be served immediately. Up to 100 000 probes may be performed to avoid
-    instance activation on short sporadic peaks. 100 000 is estimated maximum
-    number of queries one instance can serve in one second.
+    Instance is considered contested if more than than the
+    table_cache_contention_threshold (20% by default) of mutex acquisitions
+    can't be served immediately.
 
-    These numbers work well on a 2 socket / 20 core / 40 threads Intel Broadwell
-    system, that is expected number of instances is activated within reasonable
-    warmup time. It may have to be adjusted for other systems.
+    To account for the diverse range of hardware, if there is sustained
+    contention in the last 10 seconds for more than 5 seconds, we increase
+    the instances if this is over the table_cache_contention_threshold.
 
     Only TABLE object acquistion is instrumented. We intentionally avoid this
     overhead on TABLE object release. All other table cache mutex acquistions
     are considered out of hot path and are not instrumented either.
   */
-  void lock_and_check_contention(uint32_t n_instances, uint32_t instance)
+  void lock_and_check_contention(uint32_t n_instances, uint32_t instance, my_time_t now)
   {
+    static const unsigned t_interval= 10;
     if (mysql_mutex_trylock(&LOCK_table_cache))
     {
       mysql_mutex_lock(&LOCK_table_cache);
-      if (++mutex_waits == 20000)
+      if (now > t_last + t_interval)
       {
-        if (n_instances < tc_instances)
+        t_last= now;
+        mutex_waits= 1;
+        mutex_nowaits= 0;
+        return;
+      }
+      else
+      {
+        mutex_waits++;
+      }
+      if (now > (t_last + t_interval/2) && mutex_waits * 100 >= tc_threshold * (mutex_nowaits + mutex_waits))
+      {
+	if (n_instances < tc_instances)
         {
           if (tc_active_instances.
               compare_exchange_weak(n_instances, n_instances + 1,
@@ -197,14 +210,15 @@ struct Table_cache_instance
                             mutex_waits * 100 / (mutex_nowaits + mutex_waits),
                             n_instances);
         }
+        /* add a second so those threads waiting for the expansion don't immediately trigger another expansion */
+        t_last= now + 1;
         mutex_waits= 0;
         mutex_nowaits= 0;
       }
     }
-    else if (++mutex_nowaits == 80000)
+    else
     {
-      mutex_waits= 0;
-      mutex_nowaits= 0;
+      ++mutex_nowaits;
     }
   }
 };
@@ -389,7 +403,7 @@ TABLE *tc_acquire_table(THD *thd, TDC_element *element)
   uint32_t i= thd->thread_id % n_instances;
   TABLE *table;
 
-  tc[i].lock_and_check_contention(n_instances, i);
+  tc[i].lock_and_check_contention(n_instances, i, thd->query_start());
   table= element->free_tables[i].list.pop_front();
   if (table)
   {
@@ -597,6 +611,7 @@ bool tdc_init(void)
   if (!(tc= new Table_cache_instance[tc_instances + 1]))
     DBUG_RETURN(true);
   tdc_inited= true;
+  t_last= my_timer_milliseconds() / 1000;
   mysql_mutex_init(key_LOCK_unused_shares, &LOCK_unused_shares,
                    MY_MUTEX_INIT_FAST);
   lf_hash_init(&tdc_hash, sizeof(TDC_element) +

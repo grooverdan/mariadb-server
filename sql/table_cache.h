@@ -63,6 +63,7 @@ struct TDC_element
 
 extern ulong tdc_size;
 extern ulong tc_size;
+extern uint32 tc_threshold;
 extern uint32 tc_instances;
 
 extern bool tdc_init(void);
