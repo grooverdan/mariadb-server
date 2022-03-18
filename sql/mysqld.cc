@@ -1490,7 +1490,7 @@ struct st_VioSSLFd *ssl_acceptor_fd;
 /**
   Number of currently active user connections.
 */
-Atomic_counter<uint> connection_count;
+static Atomic_counter<uint> connection_count;
 static Atomic_counter<uint> extra_connection_count;
 
 my_bool opt_gtid_strict_mode= FALSE;
@@ -6131,8 +6131,13 @@ static void set_non_blocking_if_supported(MYSQL_SOCKET sock)
 #endif
 }
 
+/*
+  Terminate the server if the server_last_activity exceeds the
+  max_idle_exection time
+  Returns true if a termination is progressing, false otherwise
+*/
 
-static void handle_socket_timeout()
+bool handle_max_idle_execution_timeout()
 {
   /*
     The server_last_activity is set when one of the connection counts
@@ -6146,8 +6151,10 @@ static void handle_socket_timeout()
         + max_idle_execution * 1000000UL))
   {
     sql_print_information("max_idle_execution time reached starting shutdown");
-    abort_loop= 1;
+    break_connect_loop();
+    return true;
   }
+  return false;
 }
 
 
@@ -6273,7 +6280,7 @@ void handle_connections_sockets()
     if (max_idle_execution)
     {
       if (mysql_socket_getfd(sock) == INVALID_SOCKET)
-        handle_socket_timeout();
+        handle_max_idle_execution_timeout();
       else
         my_atomic_storelonglong(&server_last_activity,
                                 microsecond_interval_timer());

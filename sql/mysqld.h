@@ -74,6 +74,7 @@ enum enum_slave_parallel_mode {
 };
 
 /* Function prototypes */
+bool handle_max_idle_execution_timeout();
 void kill_mysql(THD *thd);
 void close_connection(THD *thd, uint sql_errno= 0);
 void handle_connection_in_main_thread(CONNECT *thd);

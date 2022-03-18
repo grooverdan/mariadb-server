@@ -9,7 +9,7 @@ disable_reconnect;
 disconnect default;
 
 --echo 'allow server to time out'
---sleep 10
+--sleep 7
 --echo 'should have timed out'
 --source include/wait_until_disconnected.inc
 
@@ -37,6 +37,6 @@ SELECT @@interactive_timeout, @@wait_timeout;
 disconnect con2;
 
 --echo 'allow server to time out'
---sleep 10
---echo 'should have timed out'
+--sleep 7
+--echo 'should haved timed out'
 --source include/wait_until_disconnected.inc

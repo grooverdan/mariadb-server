@@ -645,14 +645,9 @@ void handle_connections_win()
     {
       if (idx == WAIT_TIMEOUT)
       {
-        if (connection_count == 0 &&
-            microsecond_interval_timer() >
-            (my_atomic_loadlonglong(&server_last_activity)
-            + max_idle_execution * 1000000ULL))
-        {
-          sql_print_information("max_idle_execution time reached starting shutdown");
+        if (handle_max_idle_execution_timeout())
           break;
-        }
+
         continue;
       }
       else

@@ -2016,7 +2016,10 @@ void THD::disconnect()
 
   /* If we're tracking idle execution, and we're down to the last connection */
   if (max_idle_execution && *scheduler->connection_count <= 1)
+  {
     my_atomic_storelonglong(&server_last_activity, utime_after_query);
+    handle_max_idle_execution_timeout();
+  }
   mysql_mutex_unlock(&LOCK_thd_data);
 }
 
