@@ -2446,12 +2446,8 @@ print_tz_leaps_as_sql(const TIME_ZONE_INFO *sp)
     For all timezones.
   */
   if (!opt_skip_write_binlog)
-      printf("\\d |\n"
-        "IF (select count(*) from information_schema.global_variables where\n"
-        "variable_name='wsrep_on' and variable_value='ON') = 1 THEN\n"
-        "ALTER TABLE time_zone_leap_second ENGINE=InnoDB;\n"
-        "END IF|\n"
-        "\\d ;\n");
+      printf(
+        "execute immediate if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone_leap_second ENGINE=InnoDB', 'do 0');\n");
 
   printf("TRUNCATE TABLE time_zone_leap_second;\n");
 
@@ -2466,12 +2462,8 @@ print_tz_leaps_as_sql(const TIME_ZONE_INFO *sp)
   }
 
   if (!opt_skip_write_binlog)
-      printf("\\d |\n"
-        "IF (select count(*) from information_schema.global_variables where\n"
-        "variable_name='wsrep_on' and variable_value='ON') = 1 THEN\n"
-        "ALTER TABLE time_zone_leap_second ENGINE=Aria;\n"
-        "END IF|\n"
-        "\\d ;\n");
+      printf(
+        "execute immediate if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone_leap_second ENGINE=Aria', 'do 0');\n");
 
   printf("ALTER TABLE time_zone_leap_second ORDER BY Transition_time;\n");
 }
@@ -2650,7 +2642,7 @@ static struct my_option my_long_options[] =
    &opt_verbose, &opt_verbose, 0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
   {"version", 'V', "Output version information and exit.",
    0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0},
-  {"skip-write-binlog", 'S', "Do not replicate changes to time zone tables to the binary log, or to other nodes in a Galera cluster (if wsrep_on=ON).",
+  {"skip-write-binlog", 'S', "Do not replicate changes to time zone tables to the binary log, or to other nodes in a Galera cluster.",
    &opt_skip_write_binlog,&opt_skip_write_binlog, 0, GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
   { 0, 0, 0, 0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0}
 };
@@ -2733,6 +2725,17 @@ static const char *trunc_tables_const=
   "TRUNCATE TABLE time_zone_name;\n"
   "TRUNCATE TABLE time_zone_transition;\n"
   "TRUNCATE TABLE time_zone_transition_type;\n";
+static const char *wsrep_is_on=
+  "select count(*) from information_schema.global_variables"
+  "  where variable_name='wsrep_on' and variable_value='ON'";
+static const char *wsrep_cannot_replicate_tz=
+  "select count(*) from ("
+  "  select 1 from information_schema.global_variables"
+  "    where variable_name='wsrep_on' and variable_value='ON'"
+  "  UNION ALL"
+  "  select 1 from information_schema.global_variables"
+  "    where variable_name='wsrep_mode' and variable_value NOT LIKE '%REPLICA_ARIA%'"
+  "  ) criteria";
 
 int
 main(int argc, char **argv)
@@ -2758,33 +2761,25 @@ main(int argc, char **argv)
   else
     trunc_tables= trunc_tables_const;
 
+  printf("set @wsrep_is_on=(%s);\n", wsrep_is_on);
+  printf("set @wsrep_cannot_replicate_tz=(%s);\n", wsrep_cannot_replicate_tz);
   if (opt_skip_write_binlog)
-    /* If skip_write_binlog is set and wsrep is compiled in we disable
-       sql_log_bin and wsrep_on to avoid Galera replicating below
-       TRUNCATE TABLE clauses. This will allow user to set different
-       time zones to nodes in Galera cluster. */
-    printf("set @prep1=if((select count(*) from information_schema.global_variables where variable_name='wsrep_on' and variable_value='ON'), 'SET SESSION SQL_LOG_BIN=?, WSREP_ON=OFF;', 'do ?');\n"
-           "prepare set_wsrep_write_binlog from @prep1;\n"
-           "set @toggle=0; execute set_wsrep_write_binlog using @toggle;\n"
+    /* If turn off session wsrep if we cannot replicate using galera.
+       Disable sql_log_bin as the name implies. */
+    printf("execute immediate if(@wsrep_cannot_replicate_tz, 'SET WSREP_ON=OFF', 'do 0');\n"
+           "SET SESSION SQL_LOG_BIN=0;\n"
            "%s%s", trunc_tables, lock_tables);
   else
     // Alter time zone tables to InnoDB if wsrep_on is enabled
     // to allow changes to them to replicate with Galera
-    printf("\\d |\n"
-      "IF (select count(*) from information_schema.global_variables where\n"
-      "variable_name='wsrep_on' and variable_value='ON') = 1 THEN\n"
-      "ALTER TABLE time_zone ENGINE=InnoDB;\n"
-      "ALTER TABLE time_zone_name ENGINE=InnoDB;\n"
-      "ALTER TABLE time_zone_transition ENGINE=InnoDB;\n"
-      "ALTER TABLE time_zone_transition_type ENGINE=InnoDB;\n"
+    printf(
+      "execute immediate(if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone ENGINE=InnoDB', 'do 0');\n"
+      "execute immediate(if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone_name ENGINE=InnoDB', 'do 0');\n"
+      "execute immediate(if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone_transition ENGINE=InnoDB', 'do 0');\n"
+      "execute immediate(if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone_transition_type ENGINE=InnoDB', 'do 0');\n"
       "%s"
-      "START TRANSACTION;\n"
-      "ELSE\n%s"
-      "END IF|\n"
-      "\\d ;\n",
-      trunc_tables, trunc_tables);
-    // Ideally we'd like to put lock_tables in the ELSE branch however
-    // "ERROR 1314 (0A000) at line 2: LOCK is not allowed in stored procedures"
+      "execute immediate(if(@wsrep_cannot_replicate_tz, 'start transaction', '%s');\n"
+      , trunc_tables, lock_tables);
 
   if (argc == 1 && !opt_leap)
   {
@@ -2833,16 +2828,12 @@ main(int argc, char **argv)
   }
 
   if(!opt_skip_write_binlog)
-    // Fall back to Aria
-    printf("\\d |\n"
-      "IF (select count(*) from information_schema.global_variables where\n"
-      "variable_name='wsrep_on' and variable_value='ON') = 1 THEN\n"
-      "ALTER TABLE time_zone ENGINE=Aria;\n"
-      "ALTER TABLE time_zone_name ENGINE=Aria;\n"
-      "ALTER TABLE time_zone_transition ENGINE=Aria, ORDER BY Time_zone_id, Transition_time;\n"
-      "ALTER TABLE time_zone_transition_type ENGINE=Aria, ORDER BY Time_zone_id, Transition_type_id;\n"
-      "END IF|\n"
-      "\\d ;\n");
+    // Change back to Aria
+    printf(
+      "execute immediate if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone ENGINE=Aria', 'do 0');\n"
+      "execute immediate if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone_name ENGINE=Aria', 'do 0');\n"
+      "execute immediate if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone_transition ENGINE=Aria, ORDER BY Time_zone_id, Transition_time', 'do 0');\n"
+      "execute immediate if(@wsrep_cannot_replicate_tz, 'ALTER TABLE time_zone_transition_type ENGINE=Aria, ORDER BY Time_zone_id, Transition_type_id', 'do 0');\n");
 
   free_allocated_data();
   my_end(0);
