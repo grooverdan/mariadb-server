@@ -37,6 +37,7 @@ usr/bin/mytop
 usr/bin/perror
 usr/bin/replace
 usr/bin/resolve_stack_dump
+usr/bin/uca-dump
 usr/share/man/man1/mariadb-access.1
 usr/share/man/man1/mariadb-admin.1
 usr/share/man/man1/mariadb-binlog.1
