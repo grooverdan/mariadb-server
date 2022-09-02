@@ -1187,6 +1187,8 @@ enum ha_option_type { HA_OPTION_TYPE_ULL,    /* unsigned long long */
   HA_xOPTION_SYSVAR(name, ha_index_option_struct, field, sysvar)
 #define HA_IOPTION_END HA_xOPTION_END
 
+enum ha_resource_type { HA_RESOURCE_MEMORY, HA_RESOURCE_CPU, HA_RESOURCE_IO };
+
 typedef struct st_ha_create_table_option {
   enum ha_option_type type;
   const char *name;
@@ -1674,6 +1676,10 @@ struct handlerton
   int (*create_partitioning_metadata)(const char *path,
                                       const char *old_path,
                                       chf_create_flags action_flag);
+  /*
+    Inform handler that a resource is relieved (level= 0) or under strain (>0).
+  */
+  int (*resource_pressure)(enum ha_resource_type r, int level);
 };
 
 

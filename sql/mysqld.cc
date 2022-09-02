@@ -6081,6 +6081,69 @@ void create_new_thread(CONNECT *connect)
 #endif /* EMBEDDED_LIBRARY */
 
 
+my_bool memory_pressure(THD *unused1 __attribute__((unused)), plugin_ref plugin,
+                        void *arg)
+{
+  DBUG_ENTER("memory_preassure");
+  handlerton *hton= plugin_hton(plugin);
+  int r= *(int *)arg;
+
+  if (hton->resource_pressure)
+  {
+    DBUG_RETURN(hton->resource_pressure(HA_RESOURCE_MEMORY, r));
+  }
+  DBUG_RETURN(FALSE);
+}
+
+
+/*
+  based off https://www.kernel.org/doc/html/latest/accounting/psi.html#pressure-interface
+  and https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html#memory
+*/
+static int resource_monitors_init(Dynamic_array<struct pollfd> *fds, int resource_level[])
+{
+#ifdef __linux__
+  static const char base[]= {"/sys/fs/cgroup"};
+  static const char suffix[]= {"/memory.pressure"};
+  static const char *trig[2]= {"some 150000 1000000", "full 50000 1000000"};
+  FILE *cgroup;
+  char path[MAX_PATH];
+
+  if (!(cgroup= my_fopen("/proc/self/cgroup", O_RDONLY, MYF(MY_WME))))
+    return 0;
+
+  compile_time_assert((MAX_PATH - 240 - sizeof(base) - sizeof(suffix)) > 0);
+  memcpy(path, base, sizeof(base));
+  if (fscanf(cgroup, "0::%240s", &path[sizeof(base) - 1]) != 1)
+  {
+    fclose(cgroup);
+    return 0;
+  }
+  fclose(cgroup);
+  strcat(path, suffix);
+
+  for (size_t i= 0; i < array_elements(trig); i++)
+  {
+    File mem_pressure;
+    if ((mem_pressure= my_open(path, O_RDWR | O_NONBLOCK, MYF(MY_WME))) < 0)
+      return 0;
+
+    struct pollfd p_fds;
+    p_fds.fd= mem_pressure;
+    p_fds.events= POLLPRI;
+    if (my_write(p_fds.fd, (const uchar*)trig[i], strlen(trig[i]), MYF(MY_WME)) < 0)
+    {
+      my_close(p_fds.fd, MYF(MY_WME));
+      continue;
+    }
+    fds->push(p_fds);
+  }
+  return fds->size();
+#else
+  return 0;
+#endif
+}
+
 	/* Handle new connections and spawn new process to handle them */
 
 #ifndef EMBEDDED_LIBRARY
@@ -6166,7 +6229,8 @@ static void set_non_blocking_if_supported(MYSQL_SOCKET sock)
 void handle_connections_sockets()
 {
   MYSQL_SOCKET sock= mysql_socket_invalid();
-  uint error_count=0;
+  uint error_count= 0;
+  size_t memp_cnt= 0;
   struct sockaddr_storage cAddr;
   int retval;
 #ifdef HAVE_POLL
@@ -6179,6 +6243,9 @@ void handle_connections_sockets()
   DBUG_ENTER("handle_connections_sockets");
 
 #ifdef HAVE_POLL
+  int resource_level[2]= {0, 0};
+  memp_cnt= resource_monitors_init(&fds, resource_level);
+
   for (size_t i= 0; i < listen_sockets.size(); i++)
   {
     struct pollfd local_fds;
@@ -6232,12 +6299,23 @@ void handle_connections_sockets()
 
     /* Is this a new connection request ? */
 #ifdef HAVE_POLL
-    for (size_t i= 0; i < fds.size(); ++i)
     {
-      if (fds.at(i).revents & POLLIN)
+      size_t i= 0;
+#ifdef __linux__
+      for (; i < memp_cnt; ++i)
       {
-        sock= listen_sockets.at(i);
-        break;
+         if (fds.at(i).revents & POLLPRI)
+           plugin_foreach(NULL, memory_pressure, MYSQL_STORAGE_ENGINE_PLUGIN,
+                          &resource_level[i]);
+      }
+#endif
+      for (; i < fds.size(); ++i)
+      {
+        if (fds.at(i).revents & POLLIN)
+        {
+          sock= listen_sockets.at(i - memp_cnt);
+          break;
+        }
       }
     }
 #else  // HAVE_POLL
@@ -6279,6 +6357,12 @@ void handle_connections_sockets()
   }
   sd_notify(0, "STOPPING=1\n"
             "STATUS=Shutdown in progress\n");
+#if defined(HAVE_POLL) && defined(__linux__)
+  for (size_t i= 0; i < memp_cnt; ++i)
+  {
+     my_close(fds.at(i).fd, MYF(MY_WME));
+  }
+#endif
   DBUG_VOID_RETURN;
 }
 
