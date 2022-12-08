@@ -180,6 +180,7 @@ sys_var::sys_var(sys_var_chain *chain, const char *name_arg,
   option.def_value= def_val;
   option.app_type= this;
   option.var_type= flags & AUTO_SET ? GET_AUTO : 0;
+  auto_set= flags & AUTO_SET;
 
   if (chain->last)
     chain->last->next= this;
@@ -735,7 +736,7 @@ int sql_set_variables(THD *thd, List<set_var_base> *var_list, bool free)
   set_var_base *var;
   while ((var=it++))
   {
-    if (unlikely((error= var->check(thd))))
+    if (unlikely((error= MY_TEST(thd->is_error()) || var->check(thd))))
       goto err;
   }
   if (unlikely(was_error) || likely(!(error= MY_TEST(thd->is_error()))))
@@ -860,7 +861,7 @@ int set_var::light_check(THD *thd)
 
 int set_var::update(THD *thd)
 {
-  return value ? var->update(thd, this) : var->set_default(thd, this);
+  return var->auto_set ? 0 : (value ? var->update(thd, this) : var->set_default(thd, this));
 }
 
 
@@ -875,14 +876,40 @@ set_var::set_var(THD *thd, enum_var_type type_arg, sys_var *var_arg,
   if (value_arg && value_arg->type() == Item::FIELD_ITEM)
   {
     Item_field *item= (Item_field*) value_arg;
-    // names are utf8
-    if (!(value= new (thd->mem_root) Item_string_sys(thd,
-                                                     item->field_name.str,
-                                                     (uint)item->field_name.length)))
-      value=value_arg;                        /* Give error message later */
+    if (item->field_name.length == 7 && !my_strcasecmp(&my_charset_latin1, item->field_name.str, "AUTOSET"))
+    {
+      if (!var->is_autoset())
+      {
+	value= 0;
+	my_message(ER_NOT_AUTOSET, ER_THD(thd, ER_NOT_AUTOSET), MYF(0));
+	return;
+      }
+      if (type_arg != SHOW_OPT_GLOBAL)
+      {
+	value= 0;
+	my_message(ER_NOT_AUTOSET_SESSION, ER_THD(thd, ER_NOT_AUTOSET_SESSION), MYF(0));
+	return;
+      }
+      var->auto_set= true;
+      value= 0; /* like a DEFAULT */
+    }
+    else
+    {
+      if (type_arg == SHOW_OPT_GLOBAL)
+        var->auto_set= false;
+      // names are utf8
+      if (!(value= new (thd->mem_root) Item_string_sys(thd,
+                                                       item->field_name.str,
+                                                       (uint)item->field_name.length)))
+        value=value_arg;                        /* Give error message later */
+    }
   }
   else
+  {
+    if (type_arg == SHOW_OPT_GLOBAL)
+      var->auto_set= false;
     value=value_arg;
+  }
 }
 
 
@@ -1265,6 +1292,10 @@ int fill_sysvars(THD *thd, TABLE_LIST *tables, COND *cond)
       fields[14]->store(var->origin_filename, strlen(var->origin_filename),
                         files_charset_info);
     }
+
+    // AUTOSET
+    fields[15]->set_notnull();
+    fields[15]->store(var->auto_set);
 
     if (schema_table_store_record(thd, tables->table))
       goto end;

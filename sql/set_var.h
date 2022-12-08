@@ -78,6 +78,7 @@ public:
   my_option option;     ///< min, max, default values are stored here
   enum where value_origin;
   const char *origin_filename;
+  bool auto_set;
 
 protected:
   typedef bool (*on_check_function)(sys_var *self, THD *thd, set_var *var);
@@ -133,6 +134,7 @@ public:
   {
     return system_charset_info;
   }
+  bool is_autoset() const { return flags & AUTO_SET; }
   bool is_readonly() const { return flags & READONLY; }
   /**
     the following is only true for keycache variables,

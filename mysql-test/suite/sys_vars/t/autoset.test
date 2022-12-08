@@ -1,0 +1,40 @@
+
+
+set @host_cache_size_save= @@host_cache_size;
+
+# expand information_schema.SYSTEM_VARIABLES to expose AUTOSET.
+# AUTOSET is enable for all the variables marked as AUTO_SET
+SELECT VARIABLE_NAME, AUTOSET
+FROM information_schema.SYSTEM_VARIABLES 
+WHERE AUTOSET=1 ORDER BY VARIABLE_NAME;
+
+
+SET GLOBAL host_cache_size=100;
+# no longer autoset
+SELECT VARIABLE_NAME, AUTOSET
+FROM information_schema.SYSTEM_VARIABLES 
+WHERE VARIABLE_NAME='host_cache_size';
+
+# Any case
+SET GLOBAL host_cache_size=AUTOSET;
+SET GLOBAL host_cache_size=AuToSeT;
+
+# is autoset again
+SELECT VARIABLE_NAME, AUTOSET
+FROM information_schema.SYSTEM_VARIABLES 
+WHERE VARIABLE_NAME='host_cache_size';
+
+# still has a value
+SELECT @@GLOBAL.host_cache_size;
+
+--error ER_NOT_AUTOSET
+SET GLOBAL time_zone=AUTOSET;
+
+# Cannot set SESSION variables to autoset.
+# assumes there's a global/session variable that's autoset
+#--error ER_NO_AUTOSET_SESSION
+#SET SESSION my_var=AUTOSET;
+
+
+# Cleanup
+SET GLOBAL host_cache_size=@host_cache_size_save;

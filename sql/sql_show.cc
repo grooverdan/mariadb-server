@@ -9645,6 +9645,7 @@ ST_FIELD_INFO sysvars_fields_info[]=
   Column("READ_ONLY",            Yes_or_empty(),                   NOT_NULL),
   Column("COMMAND_LINE_ARGUMENT",Name(),                           NULLABLE),
   Column("GLOBAL_VALUE_PATH",    Varchar(2048),                    NULLABLE),
+  Column("AUTOSET",              STiny(1),                         NULLABLE),
   CEnd()
 };
 
