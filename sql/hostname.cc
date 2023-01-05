@@ -249,11 +249,6 @@ static void add_hostname_impl(const char *ip_key, const char *hostname,
                  (const char *) ip_key));
     }
     entry->m_host_validated= true;
-    /*
-      New errors that are considered 'blocking',
-      that will eventually cause the IP to be black listed and blocked.
-    */
-    errors->sum_connect_errors();
   }
   else
   {
@@ -309,9 +304,7 @@ void inc_host_errors(const char *ip_string, Host_errors *errors)
 
   if (entry)
   {
-    if (entry->m_host_validated)
-      errors->sum_connect_errors();
-    else
+    if (!entry->m_host_validated)
       errors->clear_connect_errors();
 
     entry->m_errors.aggregate(errors);

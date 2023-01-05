@@ -96,12 +96,6 @@ public:
       || (m_local != 0));
   }
 
-  void sum_connect_errors()
-  {
-    /* Current (historical) behavior: */
-    m_connect= m_handshake;
-  }
-
   void clear_connect_errors()
   {
     m_connect= 0;
