@@ -1,7 +1,9 @@
 #ifndef JSON_LIB_INCLUDED
 #define JSON_LIB_INCLUDED
 
-#include <my_sys.h>
+#include <my_global.h>
+#include <m_ctype.h>
+#include <ma_dyncol.h>
 
 #ifdef __cplusplus
 extern "C" {

@@ -42,6 +42,16 @@ typedef struct st_dynamic_string
     char *str;
     size_t length,max_length,alloc_increment;
 } DYNAMIC_STRING;
+
+typedef struct st_dynamic_array
+{
+  uchar *buffer;
+  size_t elements, max_element;
+  size_t alloc_increment;
+  size_t size_of_element;
+  PSI_memory_key m_psi_key;
+  myf malloc_flags;
+} DYNAMIC_ARRAY;
 #endif
 
 #ifndef MY_GLOBAL_INCLUDED

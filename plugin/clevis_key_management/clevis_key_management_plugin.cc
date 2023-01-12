@@ -22,18 +22,17 @@
 #include <mysql/plugin_encryption.h>
 #include <mysql/service_encryption.h>
 #include <mysql/service_sql.h>
+#include <mysql/service_json.h>
 #include <mysql/service_my_crypt.h>
-#include <json_lib.h>
-#include <my_sys.h>
 
+#include <jose/jws.h>
 #include <stdlib.h>
+#include <curl/curl.h>
 
 #define KEY_TABLE "mysql.clevis_keys"
 #define SERVER_TABLE "mysql.clevis_servers"
 
-static MYSQL sql_service;
-
-static char *tang_server;
+static char *tang_server; /* TODO has large race conditions if dynamic */
 
 static size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata)
 {
@@ -50,10 +49,11 @@ static char *fetch_jws(DYNAMIC_STRING *qks)
   int res, comma_pos;
 
   init_dynamic_string(&url, "http://", 256, 1024);
-  init_dynamic_string(&content, NULL, 256, 1024);
-  ds_append(&url, tang_server);
-  ds_append(&url, "/adv");
+  dynstr_append(&url, tang_server);
+  dynstr_append(&url, "/adv");
   
+  init_dynamic_string(&content, NULL, 256, 1024);
+
   CURL *curl = curl_easy_init();
   if(curl) {
     CURLcode res;
@@ -66,22 +66,27 @@ static char *fetch_jws(DYNAMIC_STRING *qks)
     curl_easy_cleanup(curl);
   }
   res= json_locate_key(content.str, content.str + content.length, "payload", key_start, &key_end, &comma_pos);
+
+
+  if (!jose_jws_ver(NULL, content.str, NULL, NULL, false))
+    goto verification; /* failure TODO */
 }
 
-static int new_key(DYNAMIC_STRING *q)
+static int new_key(MYSQL *mariadb, DYNAMIC_STRING *q)
 {
   DYNAMIC_STRING qks;
   MYSQL_RES *res;
   MYSQL_ROW row;
+  int result= 1;
 
   if (init_dynamic_string(&qks, "INSERT IGNORE INTO " SERVER_TABLE " SET key_server = \"", 256, 1024))
     goto ret;
-  ds_append(&qks, tang_server);
-  ds_append(&qks, "\" RETURNING jws");
-  if (mysql_real_query(sql_service, qks->str, qks->len))
+  dynstr_append(&qks, tang_server);
+  dynstr_append(&qks, "\" RETURNING jws");
+  if (mysql_real_query(mariadb, qks->str, qks->len))
     goto free_qks;
 
-  if ((res= mysql_use_result(sql_service)) == NULL)
+  if ((res= mysql_use_result(mariadb)) == NULL)
     goto free_q;
   row= mysql_fetch_row(res);
   if (row)
@@ -92,6 +97,9 @@ static int new_key(DYNAMIC_STRING *q)
       mysql_free_result(res);
       dynstr_set(&qks, "UPDATE " SERVER_TABLE " SET jws = \"");
       cert= fetch_jws_key(&qks)
+      if (!cert)
+        goto free_qks;
+
       new_client_key(q, cert);
     }
     else
@@ -103,12 +111,13 @@ static int new_key(DYNAMIC_STRING *q)
   }
 
   mysql_free_result(res);
+  result= 0;
 
 
 free_qks:
   dynstr_free(qks);
 reterror:
-  return 1;
+  return result;
 }
 
 static unsigned int
@@ -120,24 +129,27 @@ get_latest_key_version(unsigned int key_id)
   MYSQL_RES *res;
   MYSQL_ROW row;
   unsigned int key_version= ENCRYPTION_KEY_VERSION_INVALID;
+  MYSQL *mariadb;
+
+  if ((mariadb= mysql_init(NULL)) == NULL)
+    return 1;
 
   if (init_dynamic_string(&q, "SELECT key_version FROM " KEY_TABLE " WHERE key_id = ", 256, 1024))
     goto ret;
 
   snprint(k_s, sizeof(k_s), "%d", key_id);
-  ds_append(&q, k_s);
+  dynstr_append(&q, k_s);
 
-  if (mysql_real_query(sql_service, q->str, q->len))
-    goto free_q;
-  if (mysql_error(sql_service)[0])
-    goto free_q;
+  if (mysql_real_query(mariadb, q->str, q->len))
+    goto sql_error;
 
-  if ((res= mysql_use_result(sql_service)) == NULL)
-    goto free_q;
+  if ((res= mysql_use_result(mariadb)) == NULL)
+    goto sql_error;
+
   row= mysql_fetch_row(res);
   if (row)
   {
-    key_version = atoi(row[0]);
+    key_version = atoi(row[0]); /* FOUND! */
     goto free_result;
   }
   mysql_free_result(res);
@@ -145,38 +157,58 @@ get_latest_key_version(unsigned int key_id)
   // New key
   key_version= 1;
   snprint(v_s, sizeof(v_s), "%d", key_version);
-  ds_append(&q, " AND key_version= ");
-  ds_append(&q, v_s);
-  ds_append(&q, " FOR UPDATE");
+  dynstr_append(&q, " AND key_version= ");
+  dynstr_append(&q, v_s);
+  dynstr_append(&q, " FOR UPDATE");
 
-  mysql_real_query(mysql, STRING_WITH_LEN("START TRANSACTION"));
+  if (mysql_real_query(mysql, STRING_WITH_LEN("START TRANSACTION")))
+    goto sql_error;
+
   // SELECT FOR UPDATE
-  mysql_real_query(mysql, q->str, len);
+  if (mysql_real_query(mysql, q->str, len))
+    goto sql_error; /* TODO deadlock detection */
 
   dynstr_set(&q, "INSERT INTO " KEY_TABLE " VALUES (");
-  ds_append(&q, k_s);
-  ds_append(&q, ",");
-  ds_append(&q, v_s);
-  ds_append(&q, ", \"");
-  ds_append(&q, tang_server);
-  ds_append(&q, "\", ");
+  dynstr_append(&q, k_s);
+  dynstr_append(&q, ",");
+  dynstr_append(&q, v_s);
+  dynstr_append(&q, ", \"");
+  dynstr_append(&q, tang_server);
+  dynstr_append(&q, "\", ");
   // KEY
-  if (new_key(&q))
+  if (new_key(mariadb, &q))
   {
-    mysql_real_query(mysql, STRING_WITH_LEN("ROLLBACK"));
-    goto free_q;
+    if (mysql_real_query(mysql, STRING_WITH_LEN("ROLLBACK")))
+      goto sql_error;
   }
-  ds_append(&q, ")");
+  dynstr_append(&q, ")");
 
   // Save new key
-  mysql_real_query(sql_service, q->str, q->len);
+  if (mysql_real_query(mariadb, q->str, q->len))
+    goto sql_error;
+
+  if (mysql_real_query(mariadb, STRING_WITH_LEN("COMMIT")))
+    goto sql_error;
+
   goto free_q;
 
 free_result:
   mysql_free_result(res);
+
+  goto free_q;
+
+sql_error:
+  if (mysql_error(mariadb)[0])
+  {
+    my_printf_error(ER_UNKNOWN_ERROR, "clevis: get_latest_key_version %u - SQL error on %s - %d %s",
+	 key_version, q->str, mysql_errno(mariadb), mysql_error(mariadb));
+  }
+
 free_q:
   dynstr_free(&q);
 ret:
+  mysql_close(mariadb);
+
   return key_version;
 }
 
@@ -190,34 +222,51 @@ get_key(unsigned int key_id, unsigned int version,
   MYSQL_RES *res;
   MYSQL_ROW row;
   unsigned int key_version= ENCRYPTION_KEY_VERSION_INVALID;
+  MYSQL *mariadb;
+  int result= 1; /* 1 is SQL interface errors, 2 is dynamic_str errors */
 
-  if (*buflen < )
+  if (*buflen < MY_AES_BLOCK_SIZE)
     return ENCRYPTION_KEY_BUFFER_TOO_SMALL;
+
+  if ((mariadb= mysql_init(NULL)) == NULL)
+    return 1;
+
   if (init_dynamic_string(&q, "SELECT key FROM " KEY_TABLE " WHERE key_id = ", 256, 1024))
-    goto ret;
+  {
+    result= 2;
+    goto exit;
+  }
 
   snprint(k_s, sizeof(k_s), "%d", key_id);
-  ds_append(&q, k_s);
-  ds_append(&q, " AND key_version = ");
+  dynstr_append(&q, k_s);
+  dynstr_append(&q, " AND key_version = ");
   snprint(k_s, sizeof(k_s), "%d", version);
-  ds_append(&q, k_s);
+  dynstr_append(&q, k_s);
 
-  if (mysql_real_query(sql_service, q->str, q->len))
+  if (mysql_real_query(mariadb, q->str, q->len))
     goto free_q;
 
-   if ((res= mysql_use_result(sql_service)) == NULL)
-     goto free_q;
-   row= mysql_fetch_row( res)
-   if (row)
-   {
-     key_version = atoi(row[0]);
-     goto free_result;
-   }
-   mysql_free_result(res);
+  if ((res= mysql_use_result(mariadb)) == NULL)
+    goto free_q;
+  row= mysql_fetch_row( res)
+  if (row)
+  {
+    key_version = atoi(row[0]);
+    // TODO generate key with server
+    result= 0;
+  }
+  else
+    result= ENCRYPTION_KEY_VERSION_INVALID;
+
+  mysql_free_result(res);
+
 free_q:
   dynstr_free(&q);
 
-  return 0;
+exit:
+  mysql_close(mariadb);
+
+  return result;
 }
 
 static int ctx_init(void *ctx, const unsigned char* key, unsigned int klen, const
@@ -235,12 +284,15 @@ static unsigned int get_length(unsigned int slen, unsigned int key_id,
 
 static int clevis_key_management_plugin_init(void *p)
 {
+  MYSQL *mariadb;
+  int result= 1;
+
   /* init plugin/test_sql_service/test_sql_service.c */
-  if (mysql_init(&sql_service) == NULL)
+  if ((mariadb= mysql_init(NULL)) == NULL)
     return 1;
-  if (mysql_real_connect_local(&sql_service) == NULL)
+  if (mysql_real_connect_local(mariadb) == NULL)
     return 1;
-  if (mysql_real_query(&sql_service), STRING_WITH_LEN(
+  if (mysql_real_query(mariadb), STRING_WITH_LEN(
      "CREATE TABLE IF NOT EXISTS " KEY_TABLE " ("
      "  key_id INT UNSIGNED NOT NULL,"
      "  key_version INT UNSIGNED NOT NULL,"
@@ -248,15 +300,21 @@ static int clevis_key_management_plugin_init(void *p)
      "  key VARBINARY((16) NOT NULL," /* TODO Are we encoding? */
      "  PRIMARY KEY (key_id, key_version)"
      ") ENGINE=InnoDB"))
-    return -1;
-  if (mysql_real_query(&sql_service), STRING_WITH_LEN(
+    goto exit;
+  if (mysql_real_query(mariadb), STRING_WITH_LEN(
      "CREATE TABLE IF NOT EXISTS " SERVER_TABLE " ("
      "  server VARBINARY(64) NOT NULL PRIMARY KEY,"
-     "  jws VARBINARY(2048)"
+     "  verify VARBINARY(2048)"
+     "  enc VARBINARY(2048)"
      ") ENGINE=InnoDB"))
-    return 1;
+    goto exit;
 
-  return 0;
+  result= 0;
+
+exit:
+  mysql_close(mariadb);
+
+  return result;
 }
 
 static int clevis_key_management_plugin_deinit(void *p)

@@ -14,6 +14,7 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1335  USA */
 
 #include <my_global.h>
+#include <my_sys.h>
 #include <json_lib.h>
 
 #ifndef PSI_JSON
