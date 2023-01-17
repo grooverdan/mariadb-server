@@ -1,0 +1,13 @@
+name: version check
+on:
+   push:
+      branches:
+         - "[1-9][0-9].[0-9]+"
+      paths:
+        - VERSION
+jobs:
+  version_check:
+     if: github.actor != 'grooverdan'
+     runs-on: ubuntu-latest
+     steps:
+        - run: false
