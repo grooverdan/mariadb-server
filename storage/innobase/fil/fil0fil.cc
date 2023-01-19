@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1995, 2021, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2014, 2022, MariaDB Corporation.
+Copyright (c) 2014, 2023, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -45,7 +45,6 @@ Created 10/25/1995 Heikki Tuuri
 #include "srv0start.h"
 #include "trx0purge.h"
 #include "buf0lru.h"
-#include "ibuf0ibuf.h"
 #include "buf0flu.h"
 #include "log.h"
 #ifdef __linux__
@@ -499,6 +498,9 @@ void fil_space_t::flush_low()
       break;
   }
 
+  if (fil_system.is_write_through())
+    goto skip_flush;
+
   fil_n_pending_tablespace_flushes++;
   for (fil_node_t *node= UT_LIST_GET_FIRST(chain); node;
        node= UT_LIST_GET_NEXT(chain, node))
@@ -523,8 +525,9 @@ void fil_space_t::flush_low()
     mysql_mutex_unlock(&fil_system.mutex);
   }
 
-  clear_flush();
   fil_n_pending_tablespace_flushes--;
+skip_flush:
+  clear_flush();
 }
 
 /** Try to extend a tablespace.
@@ -753,7 +756,6 @@ inline pfs_os_file_t fil_node_t::close_to_free(bool detach_handle)
   {
     if (space->is_in_unflushed_spaces)
     {
-      ut_ad(srv_file_flush_method != SRV_O_DIRECT_NO_FSYNC);
       space->is_in_unflushed_spaces= false;
       fil_system.unflushed_spaces.remove(*space);
     }
@@ -786,7 +788,6 @@ pfs_os_file_t fil_system_t::detach(fil_space_t *space, bool detach_handle)
 
   if (space->is_in_unflushed_spaces)
   {
-    ut_ad(srv_file_flush_method != SRV_O_DIRECT_NO_FSYNC);
     space->is_in_unflushed_spaces= false;
     unflushed_spaces.remove(*space);
   }
@@ -1320,6 +1321,120 @@ ATTRIBUTE_COLD void fil_system_t::extend_to_recv_size()
   mysql_mutex_unlock(&mutex);
 }
 
+ATTRIBUTE_COLD void fil_space_t::reopen_all()
+{
+  mysql_mutex_assert_owner(&fil_system.mutex);
+  fil_system.freeze_space_list++;
+
+  for (fil_space_t &space : fil_system.space_list)
+  {
+    for (fil_node_t *node= UT_LIST_GET_FIRST(space.chain); node;
+         node= UT_LIST_GET_NEXT(chain, node))
+      if (node->is_open())
+        goto need_to_close;
+    continue;
+
+  need_to_close:
+    uint32_t p= space.n_pending.fetch_or(CLOSING, std::memory_order_acquire);
+    if (p & (STOPPING | CLOSING))
+      continue;
+
+    for (fil_node_t *node= UT_LIST_GET_FIRST(space.chain); node;
+         node= UT_LIST_GET_NEXT(chain, node))
+    {
+      if (!node->is_open())
+        continue;
+
+      ulint type= OS_DATA_FILE;
+
+      switch (FSP_FLAGS_GET_ZIP_SSIZE(space.flags)) {
+      case 1: case 2:
+        type= OS_DATA_FILE_NO_O_DIRECT;
+      }
+
+      for (ulint count= 10000; count--;)
+      {
+        p= space.pending();
+
+        if (!(p & CLOSING) || (p & STOPPING))
+          break;
+
+        if (!(p & PENDING) && !node->being_extended)
+        {
+          space.reacquire();
+          mysql_mutex_unlock(&fil_system.mutex);
+          /* Unconditionally flush the file, because
+          fil_system.write_through was updated prematurely,
+          potentially causing some flushes to be lost. */
+          os_file_flush(node->handle);
+          mysql_mutex_lock(&fil_system.mutex);
+          p= space.n_pending.fetch_sub(1, std::memory_order_relaxed) - 1;
+
+          if (!(p & CLOSING) || (p & STOPPING))
+            break;
+
+          if (!(p & PENDING) && !node->being_extended)
+          {
+            ut_a(os_file_close(node->handle));
+            bool success;
+            node->handle= os_file_create(innodb_data_file_key, node->name,
+                                         node->is_raw_disk
+                                         ? OS_FILE_OPEN_RAW : OS_FILE_OPEN,
+                                         OS_FILE_AIO, type,
+                                         srv_read_only_mode, &success);
+            ut_a(success);
+            goto next_file;
+          }
+        }
+
+        space.reacquire();
+        mysql_mutex_unlock(&fil_system.mutex);
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+        mysql_mutex_lock(&fil_system.mutex);
+        space.release();
+
+        if (!node->is_open())
+          goto next_file;
+      }
+
+      if (!(p & CLOSING) || (p & STOPPING))
+      next_file:
+        continue;
+
+      sql_print_error("InnoDB: Failed to reopen file '%s' due to " UINT32PF
+                      " operations", node->name, p & PENDING);
+    }
+  }
+
+  fil_system.freeze_space_list--;
+}
+
+void fil_system_t::set_write_through(bool write_through)
+{
+  mysql_mutex_lock(&mutex);
+
+  if (write_through != is_write_through())
+  {
+    this->write_through= write_through;
+    fil_space_t::reopen_all();
+  }
+
+  mysql_mutex_unlock(&mutex);
+}
+
+void fil_system_t::set_buffered(bool buffered)
+{
+  mysql_mutex_lock(&mutex);
+
+  if (buffered != is_buffered())
+  {
+    this->buffered= buffered;
+    fil_space_t::reopen_all();
+  }
+
+  mysql_mutex_unlock(&mutex);
+}
+
 /** Close all tablespace files at shutdown */
 void fil_space_t::close_all()
 {
@@ -1340,12 +1455,9 @@ void fil_space_t::close_all()
     for (fil_node_t *node= UT_LIST_GET_FIRST(space.chain); node != NULL;
          node= UT_LIST_GET_NEXT(chain, node))
     {
-
       if (!node->is_open())
-      {
       next:
         continue;
-      }
 
       for (ulint count= 10000; count--;)
       {
@@ -1361,8 +1473,8 @@ void fil_space_t::close_all()
           goto next;
       }
 
-      ib::error() << "File '" << node->name << "' has " << space.referenced()
-                  << " operations";
+      sql_print_error("InnoDB: File '%s' has " UINT32PF " operations",
+                      node->name, space.referenced());
     }
 
     fil_system.detach(&space);
@@ -1605,7 +1717,6 @@ pfs_os_file_t fil_delete_tablespace(uint32_t id)
     fil_space_free_low(space);
   }
 
-  ibuf_delete_for_discarded_space(id);
   return handle;
 }
 
@@ -2598,7 +2709,7 @@ inline void fil_node_t::complete_write()
   mysql_mutex_assert_not_owner(&fil_system.mutex);
 
   if (space->purpose != FIL_TYPE_TEMPORARY &&
-      srv_file_flush_method != SRV_O_DIRECT_NO_FSYNC &&
+      (!fil_system.is_write_through() && !my_disable_sync) &&
       space->set_needs_flush())
   {
     mysql_mutex_lock(&fil_system.mutex);
@@ -2746,10 +2857,6 @@ write_completed:
   {
     ut_ad(request.is_read());
 
-    /* IMPORTANT: since i/o handling for reads will read also the insert
-    buffer in fil_system.sys_space, we have to be very careful not to
-    introduce deadlocks. We never close fil_system.sys_space data
-    files and never issue asynchronous reads of change buffer pages. */
     const page_id_t id(request.bpage->id());
 
     if (dberr_t err= request.bpage->read_complete(*request.node))
@@ -2774,14 +2881,6 @@ write_completed:
 possibly cached by the OS. */
 void fil_flush_file_spaces()
 {
-  if (srv_file_flush_method == SRV_O_DIRECT_NO_FSYNC)
-  {
-    ut_d(mysql_mutex_lock(&fil_system.mutex));
-    ut_ad(fil_system.unflushed_spaces.empty());
-    ut_d(mysql_mutex_unlock(&fil_system.mutex));
-    return;
-  }
-
 rescan:
   mysql_mutex_lock(&fil_system.mutex);
 

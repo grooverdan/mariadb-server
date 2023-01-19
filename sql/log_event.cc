@@ -2343,7 +2343,8 @@ void Format_description_log_event::calc_server_version_split()
 void Format_description_log_event::deduct_options_written_to_bin_log()
 {
   options_written_to_bin_log= OPTION_AUTO_IS_NULL | OPTION_NOT_AUTOCOMMIT |
-              OPTION_NO_FOREIGN_KEY_CHECKS | OPTION_RELAXED_UNIQUE_CHECKS;
+              OPTION_NO_FOREIGN_KEY_CHECKS | OPTION_RELAXED_UNIQUE_CHECKS |
+              OPTION_INSERT_HISTORY;
   if (!server_version_split.version_is_valid() ||
       server_version_split.kind == master_version_split::KIND_MYSQL ||
       server_version_split < Version(10,5,2))

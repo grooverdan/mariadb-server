@@ -5571,6 +5571,27 @@ public:
   {
     lex= backup_lex;
   }
+
+  bool vers_insert_history_fast(const TABLE *table)
+  {
+    DBUG_ASSERT(table->versioned());
+    return table->versioned(VERS_TIMESTAMP) &&
+           (variables.option_bits & OPTION_INSERT_HISTORY) &&
+            lex->duplicates == DUP_ERROR;
+  }
+
+  bool vers_insert_history(const Field *field)
+  {
+    if (!field->vers_sys_field())
+      return false;
+    if (!vers_insert_history_fast(field->table))
+      return false;
+    if (lex->sql_command != SQLCOM_INSERT &&
+        lex->sql_command != SQLCOM_INSERT_SELECT &&
+        lex->sql_command != SQLCOM_LOAD)
+      return false;
+    return !is_set_timestamp_forbidden(this);
+  }
 };
 
 
@@ -6124,7 +6145,7 @@ class select_insert :public select_result_interceptor {
   int prepare(List<Item> &list, SELECT_LEX_UNIT *u);
   virtual int prepare2(JOIN *join);
   virtual int send_data(List<Item> &items);
-  virtual bool store_values(List<Item> &values, bool ignore_errors);
+  virtual bool store_values(List<Item> &values);
   virtual bool can_rollback_data() { return 0; }
   bool prepare_eof();
   bool send_ok_packet();
@@ -6136,7 +6157,6 @@ class select_insert :public select_result_interceptor {
 
 
 class select_create: public select_insert {
-  TABLE_LIST *create_table;
   Table_specification_st *create_info;
   TABLE_LIST *select_tables;
   Alter_info *alter_info;
@@ -6157,7 +6177,6 @@ public:
                 TABLE_LIST *select_tables_arg):
     select_insert(thd_arg, table_arg, NULL, &select_fields, 0, 0, duplic,
                   ignore, NULL),
-    create_table(table_arg),
     create_info(create_info_par),
     select_tables(select_tables_arg),
     alter_info(alter_info_arg),
@@ -6171,7 +6190,7 @@ public:
   int prepare(List<Item> &list, SELECT_LEX_UNIT *u);
 
   int binlog_show_create_table(TABLE **tables, uint count);
-  bool store_values(List<Item> &values, bool ignore_errors);
+  bool store_values(List<Item> &values);
   bool send_eof();
   virtual void abort_result_set();
   virtual bool can_rollback_data() { return 1; }
@@ -6184,8 +6203,8 @@ public:
 private:
   TABLE *create_table_from_items(THD *thd,
                                   List<Item> *items,
-                                  MYSQL_LOCK **lock,
-                                  TABLEOP_HOOKS *hooks);
+                                  MYSQL_LOCK **lock);
+  int postlock(THD *thd, TABLE **tables);
 };
 
 #include <myisam.h>
@@ -7602,6 +7621,19 @@ public:
   ~Check_level_instant_set()
   {
     m_thd->count_cuted_fields= m_check_level;
+  }
+};
+
+
+class Use_relaxed_field_copy: public Sql_mode_save,
+                              public Check_level_instant_set
+{
+public:
+  Use_relaxed_field_copy(THD *thd) :
+      Sql_mode_save(thd), Check_level_instant_set(thd, CHECK_FIELD_IGNORE)
+  {
+    thd->variables.sql_mode&= ~(MODE_NO_ZERO_IN_DATE | MODE_NO_ZERO_DATE);
+    thd->variables.sql_mode|= MODE_INVALID_DATES;
   }
 };
 

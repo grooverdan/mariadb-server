@@ -511,7 +511,8 @@ static Sys_var_charptr_fscs Sys_basedir(
        DEFAULT(0));
 
 static Sys_var_charptr_fscs Sys_my_bind_addr(
-       "bind_address", "IP address to bind to.",
+       "bind_address", "IP address to bind to. Several addresses may be "
+       "specified, separated by a comma (,).",
        READ_ONLY GLOBAL_VAR(my_bind_addr_str), CMD_LINE(REQUIRED_ARG),
        DEFAULT(0));
 
@@ -1544,6 +1545,7 @@ static bool update_cached_long_query_time(sys_var *self, THD *thd,
 
 static Sys_var_double Sys_long_query_time(
        "long_query_time",
+       "Alias for log_slow_query_time. "
        "Log all queries that have taken more than long_query_time seconds "
        "to execute to the slow query log file. The argument will be treated "
        "as a decimal value with microsecond precision",
@@ -1552,6 +1554,15 @@ static Sys_var_double Sys_long_query_time(
        NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
        ON_UPDATE(update_cached_long_query_time));
 
+static Sys_var_double Sys_log_slow_query_time(
+       "log_slow_query_time",
+       "Log all queries that have taken more than log_slow_query_time seconds "
+       "to execute to the slow query log file. The argument will be treated "
+       "as a decimal value with microsecond precision",
+       SESSION_VAR(long_query_time_double),
+       CMD_LINE(REQUIRED_ARG), VALID_RANGE(0, LONG_TIMEOUT), DEFAULT(10),
+       NO_MUTEX_GUARD, NOT_IN_BINLOG, ON_CHECK(0),
+       ON_UPDATE(update_cached_long_query_time));
 
 static bool update_cached_max_statement_time(sys_var *self, THD *thd,
                                          enum_var_type type)
@@ -1769,9 +1780,9 @@ static bool check_max_delayed_threads(sys_var *self, THD *thd, set_var *var)
                            global_system_variables.max_insert_delayed_threads;
 }
 
-// Alias for max_delayed_threads
 static Sys_var_ulong Sys_max_insert_delayed_threads(
        "max_insert_delayed_threads",
+       "Alias for max_delayed_threads. "
        "Don't start more than this number of threads to handle INSERT "
        "DELAYED statements. If set to zero INSERT DELAYED will be not used",
        SESSION_VAR(max_insert_delayed_threads),
@@ -2600,6 +2611,14 @@ static Sys_var_ulong Sys_max_write_lock_count(
 
 static Sys_var_ulong Sys_min_examined_row_limit(
        "min_examined_row_limit",
+       "Alias for log_slow_min_examined_row_limit. "
+       "Don't write queries to slow log that examine fewer rows "
+       "than that",
+       SESSION_VAR(min_examined_row_limit), CMD_LINE(REQUIRED_ARG),
+       VALID_RANGE(0, UINT_MAX), DEFAULT(0), BLOCK_SIZE(1));
+
+static Sys_var_ulong Sys_log_slow_min_examined_row_limit(
+       "log_slow_min_examined_row_limit",
        "Don't write queries to slow log that examine fewer rows "
        "than that",
        SESSION_VAR(min_examined_row_limit), CMD_LINE(REQUIRED_ARG),
@@ -3030,7 +3049,8 @@ static Sys_var_on_access_global<Sys_var_mybool,
 Sys_readonly(
        "read_only",
        "Make all non-temporary tables read-only, with the exception for "
-       "replication (slave) threads and users with the SUPER privilege",
+       "replication (slave) threads and users with the 'READ ONLY ADMIN' "
+       "privilege",
        GLOBAL_VAR(read_only), CMD_LINE(OPT_ARG), DEFAULT(FALSE),
        NO_MUTEX_GUARD, NOT_IN_BINLOG,
        ON_CHECK(check_read_only), ON_UPDATE(fix_read_only));
@@ -4761,7 +4781,8 @@ static Sys_var_harows Sys_select_limit(
        VALID_RANGE(0, HA_POS_ERROR), DEFAULT(HA_POS_ERROR), BLOCK_SIZE(1));
 
 static const char *secure_timestamp_levels[]= {"NO", "SUPER", "REPLICATION", "YES", 0};
-bool Sys_var_timestamp::on_check_access_session(THD *thd) const
+
+bool is_set_timestamp_forbidden(THD *thd)
 {
   switch (opt_secure_timestamp) {
   case SECTIME_NO:
@@ -4778,6 +4799,11 @@ bool Sys_var_timestamp::on_check_access_session(THD *thd) const
            secure_timestamp_levels[opt_secure_timestamp], NULL);
   my_error(ER_OPTION_PREVENTS_STATEMENT, MYF(0), buf);
   return true;
+}
+
+bool Sys_var_timestamp::on_check_access_session(THD *thd) const
+{
+  return is_set_timestamp_forbidden(thd);
 }
 static Sys_var_timestamp Sys_timestamp(
        "timestamp", "Set the time for this client",
@@ -5139,8 +5165,19 @@ static bool fix_slow_log_file(sys_var *self, THD *thd, enum_var_type type)
   return fix_log(&opt_slow_logname, opt_log_basename, "-slow.log",
                  global_system_variables.sql_log_slow, reopen_slow_log);
 }
+
 static Sys_var_charptr_fscs Sys_slow_log_path(
-       "slow_query_log_file", "Log slow queries to given log file. "
+       "slow_query_log_file",
+       "Alias for log_slow_query_file. "
+       "Log slow queries to given log file. "
+       "Defaults logging to 'hostname'-slow.log. Must be enabled to activate "
+       "other slow log options",
+       PREALLOCATED GLOBAL_VAR(opt_slow_logname), CMD_LINE(REQUIRED_ARG),
+       DEFAULT(0), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(check_log_path), ON_UPDATE(fix_slow_log_file));
+
+static Sys_var_charptr_fscs Sys_log_slow_query_file_name(
+       "log_slow_query_file", "Log slow queries to given log file. "
        "Defaults logging to 'hostname'-slow.log. Must be enabled to activate "
        "other slow log options",
        PREALLOCATED GLOBAL_VAR(opt_slow_logname), CMD_LINE(REQUIRED_ARG),
@@ -5241,6 +5278,16 @@ static Sys_var_mybool Sys_general_log(
 
 static Sys_var_mybool Sys_slow_query_log(
        "slow_query_log",
+       "Alias for log_slow_query. "
+       "Log slow queries to a table or log file. Defaults logging to a file "
+       "'hostname'-slow.log or a table mysql.slow_log if --log-output=TABLE is "
+       "used. Must be enabled to activate other slow log options.",
+       SESSION_VAR(sql_log_slow), CMD_LINE(OPT_ARG),
+       DEFAULT(FALSE), NO_MUTEX_GUARD, NOT_IN_BINLOG,
+       ON_CHECK(0), ON_UPDATE(fix_log_state));
+
+static Sys_var_mybool Sys_log_slow_query(
+       "log_slow_query",
        "Log slow queries to a table or log file. Defaults logging to a file "
        "'hostname'-slow.log or a table mysql.slow_log if --log-output=TABLE is "
        "used. Must be enabled to activate other slow log options.",
@@ -5265,7 +5312,7 @@ static bool fix_log_state(sys_var *self, THD *thd, enum_var_type type)
   }
   else
   {
-    DBUG_ASSERT(self == &Sys_slow_query_log);
+    DBUG_ASSERT(self == &Sys_slow_query_log || self == &Sys_log_slow_query);
     newvalptr= &global_system_variables.sql_log_slow;
     oldval=    logger.get_slow_log_file_handler()->is_open();
     log_type=  QUERY_LOG_SLOW;
@@ -5420,6 +5467,9 @@ bool Sys_var_rpl_filter::set_filter_value(const char *value, Master_info *mi)
   /* Proctect against other threads */
   mysql_mutex_lock(&LOCK_active_mi);
   switch (opt_id) {
+  case OPT_REPLICATE_REWRITE_DB:
+    status= rpl_filter->set_rewrite_db(value);
+    break;
   case OPT_REPLICATE_DO_DB:
     status= rpl_filter->set_do_db(value);
     break;
@@ -5468,6 +5518,9 @@ Sys_var_rpl_filter::global_value_ptr(THD *thd,
 
   mysql_mutex_lock(&LOCK_active_mi);
   switch (opt_id) {
+  case OPT_REPLICATE_REWRITE_DB:
+    rpl_filter->get_rewrite_db(&tmp);
+    break;
   case OPT_REPLICATE_DO_DB:
     rpl_filter->get_do_db(&tmp);
     break;
@@ -5506,6 +5559,13 @@ static Sys_var_rpl_filter Sys_replicate_do_db(
        "mentioned tables in the query. For row-based replication, the "
        "actual names of table(s) being updated are checked.",
        PRIV_SET_SYSTEM_GLOBAL_VAR_REPLICATE_DO_DB);
+
+static Sys_var_rpl_filter Sys_replicate_rewrite_db(
+       "replicate_rewrite_db", OPT_REPLICATE_REWRITE_DB,
+       "Tells the slave to replicate binlog events "
+       "into a different database than their original target on the master."
+       "Example: replicate-rewrite-db=master_db_name->slave_db_name.",
+       PRIV_SET_SYSTEM_GLOBAL_VAR_REPLICATE_REWRITE_DB);
 
 static Sys_var_rpl_filter Sys_replicate_do_table(
        "replicate_do_table", OPT_REPLICATE_DO_TABLE,
@@ -5936,7 +5996,7 @@ static bool update_wsrep_auto_increment_control (sys_var *self, THD *thd, enum_v
   {
     /*
       The variables that control auto increment shall be calculated
-      automaticaly based on the size of the cluster. This usually done
+      automatically based on the size of the cluster. This usually done
       within the wsrep_view_handler_cb callback. However, if the user
       manually sets the value of wsrep_auto_increment_control to 'ON',
       then we should to re-calculate these variables again (because
@@ -6901,3 +6961,11 @@ static Sys_var_ulonglong Sys_max_rowid_filter_size(
        SESSION_VAR(max_rowid_filter_size), CMD_LINE(REQUIRED_ARG),
        VALID_RANGE(1024, (ulonglong)~(intptr)0), DEFAULT(128*1024),
        BLOCK_SIZE(1));
+
+static Sys_var_bit Sys_system_versioning_insert_history(
+       "system_versioning_insert_history",
+       "Allows direct inserts into ROW_START and ROW_END columns if "
+       "secure_timestamp allows changing @@timestamp",
+       SESSION_VAR(option_bits), CMD_LINE(OPT_ARG),
+       OPTION_INSERT_HISTORY, DEFAULT(FALSE),
+       NO_MUTEX_GUARD, IN_BINLOG);

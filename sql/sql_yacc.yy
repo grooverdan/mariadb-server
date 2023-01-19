@@ -1242,7 +1242,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
    TRANSACTION can be a non-empty history unit, or can be an identifier
    in bit_expr.
 
-   In the grammar below we use %prec to explicitely tell Bison to go
+   In the grammar below we use %prec to explicitly tell Bison to go
    through the empty branch in the optional rule only when the lookahead
    token does not belong to a small set of selected tokens.
 
@@ -1580,7 +1580,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
                            field_scale opt_field_scale
 
 %type <lex_user> user grant_user grant_role user_or_role current_role
-                 admin_option_for_role user_maybe_role
+                 admin_option_for_role user_maybe_role role_name
 
 %type <user_auth> opt_auth_str auth_expression auth_token
                   text_or_password
@@ -12767,7 +12767,7 @@ do:
             lex->sql_command = SQLCOM_DO;
             if (lex->main_select_push(true))
               MYSQL_YYABORT;
-            mysql_init_select(lex);
+            lex->init_select();
           }
           expr_list
           {
@@ -12991,7 +12991,7 @@ replace:
 insert_start: {
                 if (Lex->main_select_push())
                   MYSQL_YYABORT;
-                mysql_init_select(Lex);
+                Lex->init_select();
                 Lex->inc_select_stack_outer_barrier();
                 Lex->current_select->parsing_place= BEFORE_OPT_LIST;
               }
@@ -13258,7 +13258,7 @@ update:
             LEX *lex= Lex;
             if (Lex->main_select_push())
               MYSQL_YYABORT;
-            mysql_init_select(lex);
+            lex->init_select();
             lex->sql_command= SQLCOM_UPDATE;
             lex->duplicates= DUP_ERROR; 
           }
@@ -13340,7 +13340,7 @@ delete:
             YYPS->m_mdl_type= MDL_SHARED_WRITE;
             if (Lex->main_select_push())
               MYSQL_YYABORT;
-            mysql_init_select(lex);
+            lex->init_select();
             lex->ignore= 0;
             lex->first_select_lex()->order_list.empty();
           }
@@ -13617,7 +13617,7 @@ show:
             lex->ident= null_clex_str;
             if (Lex->main_select_push())
               MYSQL_YYABORT;
-            mysql_init_select(lex);
+            lex->init_select();
             lex->current_select->parsing_place= SELECT_LIST;
             lex->create_info.init();
           }
@@ -13820,7 +13820,7 @@ show_param:
           {
             Lex->sql_command= SQLCOM_SHOW_GRANTS;
             if (unlikely(!(Lex->grant_user=
-                          (LEX_USER*)thd->alloc(sizeof(LEX_USER)))))
+                          (LEX_USER*)thd->calloc(sizeof(LEX_USER)))))
               MYSQL_YYABORT;
             Lex->grant_user->user= current_user_and_current_role;
           }
@@ -13929,7 +13929,7 @@ show_param:
           {
             Lex->sql_command= SQLCOM_SHOW_CREATE_USER;
             if (unlikely(!(Lex->grant_user=
-                          (LEX_USER*)thd->alloc(sizeof(LEX_USER)))))
+                          (LEX_USER*)thd->calloc(sizeof(LEX_USER)))))
               MYSQL_YYABORT;
             Lex->grant_user->user= current_user;
           }
@@ -14117,7 +14117,7 @@ describe:
             LEX *lex= Lex;
             if (lex->main_select_push())
               MYSQL_YYABORT;
-            mysql_init_select(lex);
+            lex->init_select();
             lex->current_select->parsing_place= SELECT_LIST;
             lex->sql_command= SQLCOM_SHOW_FIELDS;
             lex->first_select_lex()->db= null_clex_str;
@@ -14208,7 +14208,7 @@ explain_for_connection:
             lex->ident= null_clex_str;
             if (Lex->main_select_push())
               MYSQL_YYABORT;
-            mysql_init_select(lex);
+            lex->init_select();
             lex->current_select->parsing_place= SELECT_LIST;
             lex->create_info.init();
             Select->parsing_place= NO_MATTER;
@@ -14578,7 +14578,7 @@ load:
             }
             if (lex->main_select_push())
               MYSQL_YYABORT;
-            mysql_init_select(lex);
+            lex->init_select();
           }
           load_data_lock opt_local INFILE TEXT_STRING_filesystem
           {
@@ -16692,12 +16692,12 @@ option_value_no_option_type:
             if (unlikely(sp_create_assignment_instr(thd, yychar == YYEMPTY)))
               MYSQL_YYABORT;
           }
-        | ROLE_SYM ident_or_text
+        | ROLE_SYM role_name
           {
             if (sp_create_assignment_lex(thd, $1.pos()))
               MYSQL_YYABORT;
             LEX *lex = Lex;
-            set_var_role *var= new (thd->mem_root) set_var_role($2);
+            set_var_role *var= new (thd->mem_root) set_var_role($2->user);
             if (unlikely(var == NULL) ||
                 unlikely(lex->var_list.push_back(var, thd->mem_root)) ||
                 unlikely(sp_create_assignment_instr(thd, yychar == YYEMPTY)))
@@ -17144,32 +17144,32 @@ current_role:
             if (unlikely(!($$=(LEX_USER*) thd->calloc(sizeof(LEX_USER)))))
               MYSQL_YYABORT;
             $$->user= current_role;
-            $$->auth= NULL;
           }
           ;
 
-grant_role:
-          ident_or_text
-          {
-            CHARSET_INFO *cs= system_charset_info;
-            /* trim end spaces (as they'll be lost in mysql.user anyway) */
-            $1.length= cs->lengthsp($1.str, $1.length);
-            ((char*) $1.str)[$1.length] = '\0';
-            if (unlikely($1.length == 0))
-              my_yyabort_error((ER_INVALID_ROLE, MYF(0), ""));
-            if (unlikely(!($$=(LEX_USER*) thd->alloc(sizeof(LEX_USER)))))
-              MYSQL_YYABORT;
-            $$->user= $1;
-            $$->host= empty_clex_str;
-            $$->auth= NULL;
 
-            if (unlikely(check_string_char_length(&$$->user, ER_USERNAME,
-                                                  username_char_length,
-                                                  cs, 0)))
-              MYSQL_YYABORT;
-          }
-        | current_role
-        ;
+role_name: ident_or_text
+           {
+             CHARSET_INFO *cs= system_charset_info;
+             /* trim end spaces (as they'll be lost in mysql.user anyway) */
+             $1.length= cs->lengthsp($1.str, $1.length);
+             ((char*) $1.str)[$1.length] = '\0';
+             if (unlikely($1.length == 0))
+               my_yyabort_error((ER_INVALID_ROLE, MYF(0), ""));
+             if (unlikely(!($$=(LEX_USER*) thd->calloc(sizeof(LEX_USER)))))
+               MYSQL_YYABORT;
+             if (lex_string_eq(&$1, &none))
+               $$->user= none;
+             else if (lex_string_eq(&$1, &public_name))
+               $$->user= public_name;
+             else if (check_string_char_length(&($$->user= $1), ER_USERNAME,
+                                               username_char_length, cs, 0))
+               MYSQL_YYABORT;
+             $$->host= empty_clex_str;
+           }
+           ;
+
+grant_role: role_name | current_role ;
 
 opt_table:
           /* Empty */

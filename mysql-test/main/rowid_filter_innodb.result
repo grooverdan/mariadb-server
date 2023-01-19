@@ -116,6 +116,9 @@ WHERE  l_shipdate BETWEEN '1997-01-01' AND '1997-06-30' AND
 l_quantity > 45;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -260,6 +263,9 @@ WHERE  l_shipdate BETWEEN '1997-01-01' AND '1997-06-30' AND
 l_quantity > 45;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -416,6 +422,9 @@ WHERE  l_shipdate BETWEEN '1997-01-01' AND '1997-01-31' AND
 o_totalprice between 200000 and 230000;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -548,6 +557,9 @@ WHERE  l_shipdate BETWEEN '1997-01-01' AND '1997-01-31' AND
 o_totalprice between 200000 and 230000;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -693,6 +705,9 @@ l_quantity > 45 AND
 o_totalprice between 180000 and 230000;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -850,6 +865,9 @@ l_quantity > 45 AND
 o_totalprice between 180000 and 230000;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -989,6 +1007,9 @@ WHERE l_shipdate BETWEEN '1997-01-01' AND '1997-06-30' AND
 o_totalprice between 200000 and 230000;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -1147,6 +1168,9 @@ WHERE l_shipdate BETWEEN '1997-01-01' AND '1997-06-30' AND
 o_totalprice between 200000 and 230000;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -1321,6 +1345,9 @@ l_receiptdate BETWEEN '1996-10-05' AND '1996-10-10' AND
 o_totalprice BETWEEN 200000 AND 250000;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -1455,6 +1482,9 @@ l_receiptdate BETWEEN '1996-10-05' AND '1996-10-10' AND
 o_totalprice BETWEEN 200000 AND 250000;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -1595,6 +1625,9 @@ o_totalprice BETWEEN 200000 AND 220000 AND
 l_shipdate BETWEEN '1996-10-01' AND '1996-12-01';
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -1730,6 +1763,9 @@ o_totalprice BETWEEN 200000 AND 220000 AND
 l_shipdate BETWEEN '1996-10-01' AND '1996-12-01';
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -1873,6 +1909,9 @@ o_totalprice BETWEEN 200000 AND 220000 AND
 l_shipdate BETWEEN '1996-10-01' AND '1996-12-01';
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -2018,6 +2057,9 @@ o_totalprice BETWEEN 200000 AND 220000 AND
 l_shipdate BETWEEN '1996-10-01' AND '1996-12-01';
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -2431,6 +2473,9 @@ analyze format=json
 select * from t1  where nm like '500%' AND fl2 = 0;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -2481,6 +2526,9 @@ analyze format=json
 select * from t1  where nm like '500%' AND fl2 = 0;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -2556,6 +2604,9 @@ analyze format=json
 select * from t1  where nm like '75%' AND fl2 = 0;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -2667,6 +2718,9 @@ nm like '3448%'
 ) and fl2 = 0;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -2730,6 +2784,9 @@ nm like '3448%'
 ) and fl2 = 0;
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,
@@ -3830,6 +3887,9 @@ fi.fh in (6311439873746261694,-397087483897438286,
 8518228073041491534,-5420422472375069774);
 ANALYZE
 {
+  "query_optimization": {
+    "r_total_time_ms": "REPLACED"
+  },
   "query_block": {
     "select_id": 1,
     "r_loops": 1,

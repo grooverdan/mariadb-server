@@ -1,4 +1,4 @@
-/* Copyright(C) 2019 MariaDB Corporation
+/* Copyright(C) 2019, 20222, MariaDB Corporation.
 
 This program is free software; you can redistribute itand /or modify
 it under the terms of the GNU General Public License as published by
@@ -130,6 +130,11 @@ public:
     return m_cache[m_pos++];
   }
 
+  std::mutex& mutex()
+  {
+    return m_mtx;
+  }
+
 	/**
    Put back an item to cache.
    @param item - item to put back
@@ -154,16 +159,6 @@ public:
     return ele >= &m_base[0] && ele <= &m_base[capacity() - 1];
   }
 
-  /** Wait until cache is full.*/
-  void wait()
-  {
-    std::unique_lock<std::mutex> lk(m_mtx);
-    m_waiters++;
-    while(!is_full())
-      m_cv.wait(lk);
-    m_waiters--;
-  }
-
   /**
    @return approximate number of "borrowed" items.
    A "dirty" read, not used in any critical functionality.
@@ -171,6 +166,33 @@ public:
   TPOOL_SUPPRESS_TSAN size_t pos()
   {
     return m_pos;
+  }
+
+  /** Wait until cache is full
+  @param[in] lk -  lock for the cache mutex
+  (which can be obtained with mutex()) */
+  void wait(std::unique_lock<std::mutex> &lk)
+  {
+    m_waiters++;
+    while (!is_full())
+      m_cv.wait(lk);
+    m_waiters--;
+  }
+
+  /* Wait until cache is full.*/
+  void wait()
+  {
+    std::unique_lock<std::mutex> lk(m_mtx);
+    wait(lk);
+  }
+
+  void resize(size_t count)
+  {
+    assert(is_full());
+    m_base.resize(count);
+    m_cache.resize(count);
+    for (size_t i = 0; i < count; i++)
+      m_cache[i] = &m_base[i];
   }
 };
 

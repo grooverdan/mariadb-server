@@ -1129,7 +1129,7 @@ mysql_rm_db_internal(THD *thd, const LEX_CSTRING *db, bool if_exists,
     debug_crash_here("ddl_log_drop_after_drop_tables");
 
     LEX_CSTRING cpath{ path, path_length};
-    ddl_log_drop_db(thd, &ddl_log_state, &rm_db, &cpath);
+    ddl_log_drop_db(&ddl_log_state, &rm_db, &cpath);
 
     drop_database_objects(thd, &cpath, &rm_db, rm_mysql_schema);
 
@@ -1778,16 +1778,13 @@ uint mysql_change_db(THD *thd, const LEX_CSTRING *new_db_name,
 
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
   if (test_all_bits(sctx->master_access, DB_ACLS))
+  {
     db_access= DB_ACLS;
+  }
   else
   {
-    db_access= acl_get(sctx->host, sctx->ip, sctx->priv_user,
-                        new_db_file_name.str, FALSE) | sctx->master_access;
-    if (sctx->priv_role[0])
-    {
-      /* include a possible currently set role for access */
-      db_access|= acl_get("", "", sctx->priv_role, new_db_file_name.str, FALSE);
-    }
+    db_access= acl_get_all3(sctx, new_db_file_name.str, FALSE);
+    db_access|= sctx->master_access;
   }
 
   if (!force_switch &&

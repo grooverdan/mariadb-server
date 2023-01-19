@@ -6306,10 +6306,14 @@ find_field_in_table(THD *thd, TABLE *table, const char *name, size_t length,
         !DBUG_IF("test_completely_invisible"))
       DBUG_RETURN((Field*)0);
 
-    if (field->invisible == INVISIBLE_SYSTEM &&
-        thd->column_usage != MARK_COLUMNS_READ &&
+    if (thd->column_usage != MARK_COLUMNS_READ &&
         thd->column_usage != COLUMNS_READ)
-      DBUG_RETURN((Field*)0);
+    {
+      if (thd->vers_insert_history(field))
+        DBUG_ASSERT(table->versioned());
+      else if (field->invisible == INVISIBLE_SYSTEM)
+        DBUG_RETURN((Field*)0);
+    }
   }
   else
   {
@@ -6373,12 +6377,10 @@ find_field_in_table(THD *thd, TABLE *table, const char *name, size_t length,
 */
 
 Field *
-find_field_in_table_ref(THD *thd, TABLE_LIST *table_list,
-                        const char *name, size_t length,
-                        const char *item_name, const char *db_name,
-                        const char *table_name,
-                        ignored_tables_list_t ignored_tables,
-                        Item **ref,
+find_field_in_table_ref(THD *thd, TABLE_LIST *table_list, const char *name,
+                        size_t length, const char *item_name,
+                        const char *db_name, const char *table_name,
+                        ignored_tables_list_t ignored_tables, Item **ref,
                         bool check_privileges, bool allow_rowid,
                         field_index_t *cached_field_index_ptr,
                         bool register_tree_change, TABLE_LIST **actual_table)
@@ -6451,8 +6453,7 @@ find_field_in_table_ref(THD *thd, TABLE_LIST *table_list,
     /* 'table_list' is a stored table. */
     DBUG_ASSERT(table_list->table);
     if ((fld= find_field_in_table(thd, table_list->table, name, length,
-                                  allow_rowid,
-                                  cached_field_index_ptr)))
+                                  allow_rowid, cached_field_index_ptr)))
       *actual_table= table_list;
   }
   else
@@ -6682,18 +6683,16 @@ find_field_in_tables(THD *thd, Item_ident *item,
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
       /* Check if there are sufficient access rights to the found field. */
       if (found && check_privileges && !is_temporary_table(table_ref) &&
-          check_column_grant_in_table_ref(thd, table_ref, name, length,
-                                          found))
+          check_column_grant_in_table_ref(thd, table_ref, name, length, found))
         found= WRONG_GRANT;
 #endif
     }
     else
-      found= find_field_in_table_ref(thd, table_ref, name, length, item->name.str,
-                                     NULL, NULL, ignored_tables, ref,
-                                     check_privileges, TRUE,
-                                     &(item->cached_field_index),
-                                     register_tree_change,
-                                     &actual_table);
+      found= find_field_in_table_ref(thd, table_ref, name, length,
+                                     item->name.str, NULL, NULL,
+                                     ignored_tables, ref, check_privileges,
+                                     TRUE, &(item->cached_field_index),
+                                     register_tree_change, &actual_table);
     if (found)
     {
       if (found == WRONG_GRANT)
@@ -6703,8 +6702,7 @@ find_field_in_tables(THD *thd, Item_ident *item,
         Only views fields should be marked as dependent, not an underlying
         fields.
       */
-      if (!table_ref->belong_to_view &&
-          !table_ref->belong_to_derived)
+      if (!table_ref->belong_to_view && !table_ref->belong_to_derived)
       {
         SELECT_LEX *current_sel= item->context->select_lex;
         SELECT_LEX *last_select= table_ref->select_lex;
@@ -7909,8 +7907,9 @@ bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
                   bool allow_sum_func)
 {
   Item *item;
+  LEX * const lex= thd->lex;
   enum_column_usage saved_column_usage= thd->column_usage;
-  nesting_map save_allow_sum_func= thd->lex->allow_sum_func;
+  nesting_map save_allow_sum_func= lex->allow_sum_func;
   List_iterator<Item> it(fields);
   bool save_is_item_list_lookup;
   bool make_pre_fix= (pre_fix && (pre_fix->elements == 0));
@@ -7926,15 +7925,14 @@ bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
     2) nest level of all SELECTs on the same level shoud be equal first
        SELECT on this level (and each other).
   */
-  DBUG_ASSERT(thd->lex->current_select->nest_level >= 0);
-  DBUG_ASSERT(thd->lex->current_select->master_unit()->first_select()
-                ->nest_level ==
-              thd->lex->current_select->nest_level);
+  DBUG_ASSERT(lex->current_select->nest_level >= 0);
+  DBUG_ASSERT(lex->current_select->master_unit()->first_select()->nest_level ==
+              lex->current_select->nest_level);
   if (allow_sum_func)
-    thd->lex->allow_sum_func.set_bit(thd->lex->current_select->nest_level);
+    lex->allow_sum_func.set_bit(lex->current_select->nest_level);
   thd->where= THD::DEFAULT_WHERE;
-  save_is_item_list_lookup= thd->lex->current_select->is_item_list_lookup;
-  thd->lex->current_select->is_item_list_lookup= 0;
+  save_is_item_list_lookup= lex->current_select->is_item_list_lookup;
+  lex->current_select->is_item_list_lookup= 0;
 
   /*
     To prevent fail on forward lookup we fill it with zeroes,
@@ -7964,13 +7962,13 @@ bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
        items we have to refresh their entries before fixing of
        Item_func_get_user_var items.
   */
-  List_iterator<Item_func_set_user_var> li(thd->lex->set_var_list);
+  List_iterator<Item_func_set_user_var> li(lex->set_var_list);
   Item_func_set_user_var *var;
   while ((var= li++))
     var->set_entry(thd, FALSE);
 
   Ref_ptr_array ref= ref_pointer_array;
-  thd->lex->current_select->cur_pos_in_select_list= 0;
+  lex->current_select->cur_pos_in_select_list= 0;
   while ((item= it++))
   {
     if (make_pre_fix)
@@ -7978,8 +7976,8 @@ bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
 
     if (item->fix_fields_if_needed_for_scalar(thd, it.ref()))
     {
-      thd->lex->current_select->is_item_list_lookup= save_is_item_list_lookup;
-      thd->lex->allow_sum_func= save_allow_sum_func;
+      lex->current_select->is_item_list_lookup= save_is_item_list_lookup;
+      lex->allow_sum_func= save_allow_sum_func;
       thd->column_usage= saved_column_usage;
       DBUG_PRINT("info", ("thd->column_usage: %d", thd->column_usage));
       DBUG_RETURN(TRUE); /* purecov: inspected */
@@ -8001,16 +7999,15 @@ bool setup_fields(THD *thd, Ref_ptr_array ref_pointer_array,
       item->split_sum_func(thd, ref_pointer_array, *sum_func_list,
                            SPLIT_SUM_SELECT);
     }
-    thd->lex->current_select->select_list_tables|= item->used_tables();
-    thd->lex->used_tables|= item->used_tables();
-    thd->lex->current_select->cur_pos_in_select_list++;
-
-    thd->lex->current_select->rownum_in_field_list |= item->with_rownum_func();
+    lex->current_select->select_list_tables|= item->used_tables();
+    lex->used_tables|= item->used_tables();
+    lex->current_select->cur_pos_in_select_list++;
+    lex->current_select->rownum_in_field_list |= item->with_rownum_func();
   }
-  thd->lex->current_select->is_item_list_lookup= save_is_item_list_lookup;
-  thd->lex->current_select->cur_pos_in_select_list= UNDEF_POS;
+  lex->current_select->is_item_list_lookup= save_is_item_list_lookup;
+  lex->current_select->cur_pos_in_select_list= UNDEF_POS;
 
-  thd->lex->allow_sum_func= save_allow_sum_func;
+  lex->allow_sum_func= save_allow_sum_func;
   thd->column_usage= saved_column_usage;
   DBUG_PRINT("info", ("thd->column_usage: %d", thd->column_usage));
   DBUG_RETURN(MY_TEST(thd->is_error()));
@@ -8836,6 +8833,35 @@ err_no_arena:
 }
 
 
+static bool vers_update_or_validate_fields(TABLE *table)
+{
+  if (!table->versioned())
+    return 0;
+  DBUG_ASSERT(table->vers_write);
+
+  if (table->vers_update_fields())
+    return 0;
+
+  Field *row_start= table->vers_start_field();
+  Field *row_end= table->vers_end_field();
+  MYSQL_TIME ltime;
+
+  /*
+     Inserting the history row directly, check ROW_START < ROW_END and
+     ROW_START is non-zero.
+  */
+  if ((row_start->cmp(row_start->ptr, row_end->ptr) < 0) &&
+      !row_start->get_date(&ltime, Datetime::Options(
+         TIME_NO_ZERO_DATE, time_round_mode_t(time_round_mode_t::FRAC_NONE))))
+    return 0;
+
+  StringBuffer<MAX_DATETIME_FULL_WIDTH+1> val;
+  row_start->val_str(&val);
+  my_error(ER_WRONG_VALUE, MYF(0), row_start->field_name.str, val.c_ptr());
+  return 1;
+}
+
+
 /******************************************************************************
 ** Fill a record with data (for INSERT or UPDATE)
 ** Returns : 1 if some field has wrong type
@@ -8900,7 +8926,10 @@ fill_record(THD *thd, TABLE *table_arg, List<Item> &fields, List<Item> &values,
     if (table->next_number_field &&
         rfield->field_index ==  table->next_number_field->field_index)
       table->auto_increment_field_not_null= TRUE;
-    const bool skip_sys_field= rfield->vers_sys_field(); // TODO: && !thd->vers_modify_history() [MDEV-16546]
+
+    const bool skip_sys_field= rfield->vers_sys_field() &&
+                       (update || !thd->vers_insert_history_fast(table));
+
     if ((rfield->vcol_info || skip_sys_field) &&
         !value->vcol_assignment_allowed_value() &&
         table->s->table_category != TABLE_CATEGORY_TEMPORARY)
@@ -8915,11 +8944,14 @@ fill_record(THD *thd, TABLE *table_arg, List<Item> &fields, List<Item> &values,
 
     if (rfield->stored_in_db())
     {
-      if (!skip_sys_field &&
-          unlikely(value->save_in_field(rfield, 0) < 0) && !ignore_errors)
+      if (!skip_sys_field)
       {
-        my_message(ER_UNKNOWN_ERROR, ER_THD(thd, ER_UNKNOWN_ERROR), MYF(0));
-        goto err;
+        if (value->save_in_field(rfield, 0) < 0 && !ignore_errors)
+        {
+          my_message(ER_UNKNOWN_ERROR, ER_THD(thd, ER_UNKNOWN_ERROR), MYF(0));
+          goto err;
+        }
+        rfield->set_has_explicit_value();
       }
       /*
         In sql MODE_SIMULTANEOUS_ASSIGNMENT,
@@ -8930,7 +8962,6 @@ fill_record(THD *thd, TABLE *table_arg, List<Item> &fields, List<Item> &values,
         rfield->move_field_offset((my_ptrdiff_t) (table->record[1] -
                                                   table->record[0]));
     }
-    rfield->set_has_explicit_value();
   }
 
   if (update && thd->variables.sql_mode & MODE_SIMULTANEOUS_ASSIGNMENT)
@@ -8956,8 +8987,9 @@ fill_record(THD *thd, TABLE *table_arg, List<Item> &fields, List<Item> &values,
         table_arg->update_default_fields(ignore_errors))
       goto err;
 
-  if (table_arg->versioned() && !only_unvers_fields)
-    table_arg->vers_update_fields();
+  if (!only_unvers_fields && vers_update_or_validate_fields(table_arg))
+      goto err;
+
   /* Update virtual fields */
   if (table_arg->vfield &&
       table_arg->update_virtual_fields(table_arg->file, VCOL_UPDATE_FOR_WRITE))
@@ -9181,11 +9213,12 @@ fill_record(THD *thd, TABLE *table, Field **ptr, List<Item> &values,
     /* Ensure the end of the list of values is not reached */
     DBUG_ASSERT(value);
 
-    bool vers_sys_field= table->versioned() && field->vers_sys_field();
+    const bool skip_sys_field= field->vers_sys_field() &&
+                               !thd->vers_insert_history_fast(table);
 
     if (field->field_index == autoinc_index)
       table->auto_increment_field_not_null= TRUE;
-    if ((unlikely(field->vcol_info) || (vers_sys_field && !ignore_errors)) &&
+    if ((unlikely(field->vcol_info) || (skip_sys_field && !ignore_errors)) &&
         !value->vcol_assignment_allowed_value() &&
         table->s->table_category != TABLE_CATEGORY_TEMPORARY)
     {
@@ -9193,9 +9226,10 @@ fill_record(THD *thd, TABLE *table, Field **ptr, List<Item> &values,
                           ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN,
                           ER_THD(thd, ER_WARNING_NON_DEFAULT_VALUE_FOR_GENERATED_COLUMN),
                           field->field_name.str, table->s->table_name.str);
-      if (vers_sys_field)
-        continue;
     }
+
+    if (skip_sys_field)
+      continue;
 
     if (use_value)
       value->save_val(field);
@@ -9210,8 +9244,8 @@ fill_record(THD *thd, TABLE *table, Field **ptr, List<Item> &values,
     thd->abort_on_warning= FALSE;
     if (table->default_field && table->update_default_fields(ignore_errors))
       goto err;
-    if (table->versioned())
-      table->vers_update_fields();
+    if (vers_update_or_validate_fields(table))
+      goto err;
     if (table->vfield &&
         table->update_virtual_fields(table->file, VCOL_UPDATE_FOR_WRITE))
       goto err;

@@ -65,7 +65,9 @@ Created 10/21/1995 Heikki Tuuri
 #endif /* HAVE_FALLOC_PUNCH_HOLE_AND_KEEP_SIZE */
 
 #ifdef _WIN32
-#include <winioctl.h>
+# include <winioctl.h>
+#elif !defined O_DSYNC
+# define O_DSYNC O_SYNC
 #endif
 
 // my_test_if_atomic_write() , my_win_secattr()
@@ -83,8 +85,7 @@ private:
 	int m_max_aio;
 public:
 	io_slots(int max_submitted_io, int max_callback_concurrency) :
-		m_cache(max_submitted_io),
-		m_group(max_callback_concurrency),
+		m_cache(max_submitted_io), m_group(max_callback_concurrency, false),
 		m_max_aio(max_submitted_io)
 	{
 	}
@@ -105,6 +106,11 @@ public:
 	}
 
 	/* Wait for completions of all AIO operations */
+	void wait(std::unique_lock<std::mutex> &lk)
+	{
+		m_cache.wait(lk);
+	}
+
 	void wait()
 	{
 		m_cache.wait();
@@ -123,6 +129,24 @@ public:
 	~io_slots()
 	{
 		wait();
+	}
+
+	std::mutex& mutex()
+	{
+		return m_cache.mutex();
+	}
+
+	void resize(int max_submitted_io, int max_callback_concurrency, std::unique_lock<std::mutex> &lk)
+	{
+		ut_a(lk.owns_lock());
+		m_cache.resize(max_submitted_io);
+		m_group.set_max_tasks(max_callback_concurrency);
+		m_max_aio = max_submitted_io;
+	}
+
+	tpool::task_group& task_group()
+	{
+		return m_group;
 	}
 };
 
@@ -909,6 +933,8 @@ bool
 os_file_flush_func(
 	os_file_t	file)
 {
+	if (UNIV_UNLIKELY(my_disable_sync)) return true;
+
 	int	ret;
 
 	ret = os_file_sync_posix(file);
@@ -959,40 +985,19 @@ os_file_create_simple_func(
 
 	*success = false;
 
-	int		create_flag;
-	const char*	mode_str	= NULL;
+	int		create_flag = O_RDONLY;
 
 	ut_a(!(create_mode & OS_FILE_ON_ERROR_SILENT));
 	ut_a(!(create_mode & OS_FILE_ON_ERROR_NO_EXIT));
 
-	if (create_mode == OS_FILE_OPEN) {
-		mode_str = "OPEN";
-
-		if (access_type == OS_FILE_READ_ONLY) {
-
-			create_flag = O_RDONLY;
-
-		} else if (read_only) {
-
-			create_flag = O_RDONLY;
-
-		} else {
+	if (read_only) {
+	} else if (create_mode == OS_FILE_OPEN) {
+		if (access_type != OS_FILE_READ_ONLY) {
 			create_flag = O_RDWR;
 		}
-
-	} else if (read_only) {
-
-		mode_str = "OPEN";
-		create_flag = O_RDONLY;
-
 	} else if (create_mode == OS_FILE_CREATE) {
-
-		mode_str = "CREATE";
 		create_flag = O_RDWR | O_CREAT | O_EXCL;
-
 	} else if (create_mode == OS_FILE_CREATE_PATH) {
-
-		mode_str = "CREATE PATH";
 		/* Create subdirs along the path if needed. */
 
 		*success = os_file_create_subdirs_if_needed(name);
@@ -1018,40 +1023,32 @@ os_file_create_simple_func(
 		return(OS_FILE_CLOSED);
 	}
 
-	bool	retry;
+        create_flag |= O_CLOEXEC;
+	if (fil_system.is_write_through()) create_flag |= O_DSYNC;
+        int direct_flag = fil_system.is_buffered() ? 0 : O_DIRECT;
 
-	do {
-		file = open(name, create_flag | O_CLOEXEC, os_innodb_umask);
+	for (;;) {
+		file = open(name, create_flag | direct_flag, os_innodb_umask);
 
 		if (file == -1) {
+			if (direct_flag && errno == EINVAL) {
+				direct_flag = 0;
+				continue;
+			}
+
 			*success = false;
-			retry = os_file_handle_error(
+			if (!os_file_handle_error(
 				name,
 				create_mode == OS_FILE_OPEN
-				? "open" : "create");
+				? "open" : "create")) {
+				break;
+			}
 		} else {
 			*success = true;
-			retry = false;
-		}
-
-	} while (retry);
-
-	/* This function is always called for data files, we should disable
-	OS caching (O_DIRECT) here as we do in os_file_create_func(), so
-	we open the same file in the same mode, see man page of open(2). */
-	if (!srv_read_only_mode && *success) {
-		switch (srv_file_flush_method) {
-		case SRV_O_DSYNC:
-		case SRV_O_DIRECT:
-		case SRV_O_DIRECT_NO_FSYNC:
-			os_file_set_nocache(file, name, mode_str);
-			break;
-		default:
 			break;
 		}
 	}
 
-#ifndef _WIN32
 	if (!read_only
 	    && *success
 	    && access_type == OS_FILE_READ_WRITE
@@ -1062,7 +1059,6 @@ os_file_create_simple_func(
 		close(file);
 		file = -1;
 	}
-#endif /* !_WIN32 */
 
 	return(file);
 }
@@ -1134,8 +1130,8 @@ os_file_create_func(
 		return(OS_FILE_CLOSED);
 	);
 
-	int		create_flag;
-	const char*	mode_str	= NULL;
+	int		create_flag = O_RDONLY | O_CLOEXEC;
+	const char*	mode_str = "OPEN";
 
 	on_error_no_exit = create_mode & OS_FILE_ON_ERROR_NO_EXIT
 		? true : false;
@@ -1145,30 +1141,17 @@ os_file_create_func(
 	create_mode &= ulint(~(OS_FILE_ON_ERROR_NO_EXIT
 			       | OS_FILE_ON_ERROR_SILENT));
 
-	if (create_mode == OS_FILE_OPEN
-	    || create_mode == OS_FILE_OPEN_RAW
-	    || create_mode == OS_FILE_OPEN_RETRY) {
-
-		mode_str = "OPEN";
-
-		create_flag = read_only ? O_RDONLY : O_RDWR;
-
-	} else if (read_only) {
-
-		mode_str = "OPEN";
-
-		create_flag = O_RDONLY;
-
+	if (read_only) {
+	} else if (create_mode == OS_FILE_OPEN
+		   || create_mode == OS_FILE_OPEN_RAW
+		   || create_mode == OS_FILE_OPEN_RETRY) {
+		create_flag = O_RDWR | O_CLOEXEC;
 	} else if (create_mode == OS_FILE_CREATE) {
-
 		mode_str = "CREATE";
-		create_flag = O_RDWR | O_CREAT | O_EXCL;
-
+		create_flag = O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC;
 	} else if (create_mode == OS_FILE_OVERWRITE) {
-
 		mode_str = "OVERWRITE";
-		create_flag = O_RDWR | O_CREAT | O_TRUNC;
-
+		create_flag = O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC;
 	} else {
 		ib::error()
 			<< "Unknown file create mode (" << create_mode << ")"
@@ -1183,25 +1166,30 @@ os_file_create_func(
 
 	ut_a(purpose == OS_FILE_AIO || purpose == OS_FILE_NORMAL);
 
-	/* We let O_DSYNC only affect log files */
+	create_flag |= O_CLOEXEC;
 
-	if (!read_only
-	    && type == OS_LOG_FILE
-	    && srv_file_flush_method == SRV_O_DSYNC) {
-#ifdef O_DSYNC
+	int direct_flag = type == OS_DATA_FILE && create_mode != OS_FILE_CREATE
+		&& !fil_system.is_buffered()
+		? O_DIRECT : 0;
+
+	if (read_only) {
+	} else if ((type == OS_LOG_FILE)
+		   ? log_sys.log_write_through
+		   : fil_system.is_write_through()) {
 		create_flag |= O_DSYNC;
-#else
-		create_flag |= O_SYNC;
-#endif
 	}
 
 	os_file_t	file;
-	bool		retry;
 
-	do {
-		file = open(name, create_flag | O_CLOEXEC, os_innodb_umask);
+	for (;;) {
+		file = open(name, create_flag | direct_flag, os_innodb_umask);
 
 		if (file == -1) {
+			if (direct_flag && errno == EINVAL) {
+				direct_flag = 0;
+				continue;
+			}
+
 			const char*	operation;
 
 			operation = (create_mode == OS_FILE_CREATE
@@ -1210,39 +1198,30 @@ os_file_create_func(
 			*success = false;
 
 			if (on_error_no_exit) {
-				retry = os_file_handle_error_no_exit(
-					name, operation, on_error_silent);
+				if (os_file_handle_error_no_exit(
+					name, operation, on_error_silent))
+					continue;
 			} else {
-				retry = os_file_handle_error(name, operation);
+				if (os_file_handle_error(name, operation))
+					continue;
 			}
+
+			return file;
 		} else {
 			*success = true;
-			retry = false;
+			break;
 		}
-
-	} while (retry);
-
-	if (!*success) {
-		return file;
 	}
 
 #if (defined __sun__ && defined DIRECTIO_ON) || defined O_DIRECT
-	if (type == OS_DATA_FILE) {
-		switch (srv_file_flush_method) {
-		case SRV_O_DSYNC:
-		case SRV_O_DIRECT:
-		case SRV_O_DIRECT_NO_FSYNC:
+	if (type == OS_DATA_FILE && create_mode == OS_FILE_CREATE
+	    && !fil_system.is_buffered()) {
 # ifdef __linux__
 use_o_direct:
 # endif
-			os_file_set_nocache(file, name, mode_str);
-			break;
-		default:
-			break;
-		}
-	}
+		os_file_set_nocache(file, name, mode_str);
 # ifdef __linux__
-	else if (type == OS_LOG_FILE && !log_sys.is_opened()) {
+	} else if (type == OS_LOG_FILE && !log_sys.is_opened()) {
 		struct stat st;
 		char b[20 + sizeof "/sys/dev/block/" ":"
 		       "/../queue/physical_block_size"];
@@ -1294,11 +1273,10 @@ skip_o_direct:
 			log_sys.log_buffered= true;
 			log_sys.set_block_size(512);
 		}
-	}
 # endif
+	}
 #endif
 
-#ifndef _WIN32
 	if (!read_only
 	    && create_mode != OS_FILE_OPEN_RAW
 	    && !my_disable_locking
@@ -1326,7 +1304,6 @@ skip_o_direct:
 		close(file);
 		file = -1;
 	}
-#endif /* !_WIN32 */
 
 	return(file);
 }
@@ -1764,6 +1741,9 @@ Flushes the write buffers of a given file to the disk.
 @return true if success */
 bool os_file_flush_func(os_file_t file)
 {
+  if (UNIV_UNLIKELY(my_disable_sync))
+    return true;
+
   ++os_n_fsyncs;
   static bool disable_datasync;
 
@@ -1989,6 +1969,11 @@ os_file_create_simple_func(
 		return(OS_FILE_CLOSED);
 	}
 
+	if (fil_system.is_write_through())
+		attributes |= FILE_FLAG_WRITE_THROUGH;
+	if (!fil_system.is_buffered())
+		attributes |= FILE_FLAG_NO_BUFFERING;
+
 	bool	retry;
 
 	do {
@@ -2160,27 +2145,16 @@ os_file_create_func(
 		if (!log_sys.is_opened() && !log_sys.log_buffered) {
 			attributes|= FILE_FLAG_NO_BUFFERING;
 		}
-		if (srv_file_flush_method == SRV_O_DSYNC)
+		if (log_sys.log_write_through)
+			attributes|= FILE_FLAG_WRITE_THROUGH;
+	} else {
+		if (type == OS_DATA_FILE && !fil_system.is_buffered())
+			attributes|= FILE_FLAG_NO_BUFFERING;
+		if (fil_system.is_write_through())
 			attributes|= FILE_FLAG_WRITE_THROUGH;
 	}
-	else if (type == OS_DATA_FILE)
-	{
-		switch (srv_file_flush_method)
-		{
-		case SRV_FSYNC:
-		case SRV_LITTLESYNC:
-		case SRV_NOSYNC:
-			break;
-		default:
-			attributes|= FILE_FLAG_NO_BUFFERING;
-		}
-	}
 
-	DWORD	access = GENERIC_READ;
-
-	if (!read_only) {
-		access |= GENERIC_WRITE;
-	}
+	DWORD access = read_only ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE;
 
 	for (;;) {
 		const  char *operation;
@@ -3632,6 +3606,58 @@ disable:
   return ret;
 }
 
+
+/**
+Change reader or writer thread parameter on a running server.
+This includes resizing  the io slots, as we calculate
+number of outstanding IOs based on the these variables.
+
+It is trickier with when Linux AIO is involved (io_context
+needs to be recreated to account for different number of
+max_events). With Linux AIO, depending on fs-max-aio number
+and user and system wide max-aio limitation, this can fail.
+
+Otherwise, we just resize the slots, and allow for
+more concurrent threads via thread_group setting.
+
+@param[in] n_reader_threads - max number of concurrently
+  executing read callbacks
+@param[in] n_writer_thread - max number of cuncurrently
+  executing write callbacks
+@return 0 for success, !=0 for error.
+*/
+int os_aio_resize(ulint n_reader_threads, ulint n_writer_threads)
+{
+  /* Lock the slots, and wait until all current IOs finish.*/
+  std::unique_lock<std::mutex> lk_read(read_slots->mutex());
+  std::unique_lock<std::mutex> lk_write(write_slots->mutex());
+
+  read_slots->wait(lk_read);
+  write_slots->wait(lk_write);
+
+  /* Now, all IOs have finished and no new ones can start, due to locks. */
+  int max_read_events= int(n_reader_threads * OS_AIO_N_PENDING_IOS_PER_THREAD);
+  int max_write_events= int(n_writer_threads * OS_AIO_N_PENDING_IOS_PER_THREAD);
+  int events= max_read_events + max_write_events;
+
+  /** Do the Linux AIO dance (this will try to create a new
+  io context with changed max_events ,etc*/
+
+  if (int ret= srv_thread_pool->reconfigure_aio(srv_use_native_aio, events))
+  {
+    /** Do the best effort. We can't change the parallel io number,
+    but we still can adjust the number of concurrent completion handlers.*/
+    read_slots->task_group().set_max_tasks(static_cast<int>(n_reader_threads));
+    write_slots->task_group().set_max_tasks(static_cast<int>(n_writer_threads));
+    return ret;
+  }
+
+  /* Allocation succeeded, resize the slots*/
+  read_slots->resize(max_read_events, static_cast<int>(n_reader_threads), lk_read);
+  write_slots->resize(max_write_events, static_cast<int>(n_writer_threads), lk_write);
+
+  return 0;
+}
 
 void os_aio_free()
 {

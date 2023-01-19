@@ -2801,6 +2801,11 @@ bool sp_process_definer(THD *thd)
     LEX_USER *d= get_current_user(thd, lex->definer);
     if (!d)
       DBUG_RETURN(TRUE);
+    if (d->user.str == public_name.str)
+    {
+      my_error(ER_INVALID_ROLE, MYF(0), lex->definer->user.str);
+      DBUG_RETURN(TRUE);
+    }
     thd->change_item_tree((Item**)&lex->definer, (Item*)d);
 
     /*
@@ -2824,12 +2829,9 @@ bool sp_process_definer(THD *thd)
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
   if (!is_acl_user(lex->definer->host.str, lex->definer->user.str))
   {
-    push_warning_printf(thd,
-                        Sql_condition::WARN_LEVEL_NOTE,
-                        ER_NO_SUCH_USER,
-                        ER_THD(thd, ER_NO_SUCH_USER),
-                        lex->definer->user.str,
-                        lex->definer->host.str);
+    push_warning_printf(thd, Sql_condition::WARN_LEVEL_NOTE,
+                        ER_NO_SUCH_USER, ER_THD(thd, ER_NO_SUCH_USER),
+                        lex->definer->user.str, lex->definer->host.str);
   }
 #endif /* NO_EMBEDDED_ACCESS_CHECKS */
 
@@ -3121,8 +3123,7 @@ mysql_create_routine(THD *thd, LEX *lex)
     */
     if (thd->slave_thread && is_acl_user(definer->host.str, definer->user.str))
     {
-      security_context.change_security_context(thd,
-                                               &thd->lex->definer->user,
+      security_context.change_security_context(thd, &thd->lex->definer->user,
                                                &thd->lex->definer->host,
                                                &thd->lex->sphead->m_db,
                                                &backup);
@@ -6763,10 +6764,7 @@ check_access(THD *thd, privilege_t want_access,
     {
       if (db && (!thd->db.str || db_is_pattern || strcmp(db, thd->db.str)))
       {
-        db_access= acl_get(sctx->host, sctx->ip, sctx->priv_user, db,
-                           db_is_pattern);
-        if (sctx->priv_role[0])
-          db_access|= acl_get("", "", sctx->priv_role, db, db_is_pattern);
+        db_access= acl_get_all3(sctx, db, db_is_pattern);
       }
       else
       {
@@ -6811,14 +6809,7 @@ check_access(THD *thd, privilege_t want_access,
   }
 
   if (db && (!thd->db.str || db_is_pattern || strcmp(db, thd->db.str)))
-  {
-    db_access= acl_get(sctx->host, sctx->ip, sctx->priv_user, db,
-                       db_is_pattern);
-    if (sctx->priv_role[0])
-    {
-      db_access|= acl_get("", "", sctx->priv_role, db, db_is_pattern);
-    }
-  }
+    db_access= acl_get_all3(sctx, db, db_is_pattern);
   else
     db_access= sctx->db_access;
   DBUG_PRINT("info",("db_access: %llx  want_access: %llx",
@@ -7612,21 +7603,6 @@ void THD::reset_for_next_command(bool do_clear_error)
 
 
 /**
-  Resets the lex->current_select object.
-  @note It is assumed that lex->current_select != NULL
-
-  This function is a wrapper around select_lex->init_select() with an added
-  check for the special situation when using INTO OUTFILE and LOAD DATA.
-*/
-
-void
-mysql_init_select(LEX *lex)
-{
-  lex->init_select();
-}
-
-
-/**
   Used to allocate a new SELECT_LEX object on the current thd mem_root and
   link it into the relevant lists.
 
@@ -7742,7 +7718,7 @@ void create_select_for_variable(THD *thd, LEX_CSTRING *var_name)
   DBUG_ENTER("create_select_for_variable");
 
   lex= thd->lex;
-  mysql_init_select(lex);
+  lex->init_select();
   lex->sql_command= SQLCOM_SELECT;
   /*
     We set the name of Item to @@session.var_name because that then is used
@@ -7761,7 +7737,7 @@ void create_select_for_variable(THD *thd, LEX_CSTRING *var_name)
 void mysql_init_multi_delete(LEX *lex)
 {
   lex->sql_command=  SQLCOM_DELETE_MULTI;
-  mysql_init_select(lex);
+  lex->init_select();
   lex->first_select_lex()->limit_params.clear();
   lex->unit.lim.clear();
   lex->first_select_lex()->table_list.

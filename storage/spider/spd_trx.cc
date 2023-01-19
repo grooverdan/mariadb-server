@@ -36,14 +36,6 @@
 #include "spd_ping_table.h"
 #include "spd_malloc.h"
 
-#ifdef SPIDER_XID_USES_xid_cache_iterate
-#else
-#ifdef XID_CACHE_IS_SPLITTED
-extern uint *spd_db_att_xid_cache_split_num;
-#endif
-extern pthread_mutex_t *spd_db_att_LOCK_xid_cache;
-extern HASH *spd_db_att_xid_cache;
-#endif
 extern struct charset_info_st *spd_charset_utf8mb3_bin;
 
 extern handlerton *spider_hton_ptr;
@@ -1604,62 +1596,17 @@ static int spider_xa_lock(
   int error_num;
   const char *old_proc_info;
   DBUG_ENTER("spider_xa_lock");
-#ifdef SPIDER_XID_USES_xid_cache_iterate
-#else
-  my_hash_value_type hash_value = my_calc_hash(spd_db_att_xid_cache,
-    (uchar*) xid_state->xid.key(), xid_state->xid.key_length());
-#ifdef XID_CACHE_IS_SPLITTED
-  uint idx = hash_value % *spd_db_att_xid_cache_split_num;
-#endif
-#endif
   old_proc_info = thd_proc_info(thd, "Locking xid by Spider");
-#ifdef SPIDER_XID_USES_xid_cache_iterate
   if (xid_cache_insert(thd, xid_state, xid))
   {
     error_num = (spider_stmt_da_sql_errno(thd) == ER_XAER_DUPID ?
       ER_SPIDER_XA_LOCKED_NUM : HA_ERR_OUT_OF_MEM);
     goto error;
   }
-#else
-#ifdef XID_CACHE_IS_SPLITTED
-  pthread_mutex_lock(&spd_db_att_LOCK_xid_cache[idx]);
-#else
-  pthread_mutex_lock(spd_db_att_LOCK_xid_cache);
-#endif
-#ifdef XID_CACHE_IS_SPLITTED
-  if (my_hash_search_using_hash_value(&spd_db_att_xid_cache[idx], hash_value,
-    xid_state->xid.key(), xid_state->xid.key_length()))
-#else
-  if (my_hash_search_using_hash_value(spd_db_att_xid_cache, hash_value,
-    xid_state->xid.key(), xid_state->xid.key_length()))
-#endif
-  {
-    error_num = ER_SPIDER_XA_LOCKED_NUM;
-    goto error;
-  }
-  if (my_hash_insert(spd_db_att_xid_cache, (uchar*)xid_state))
-  {
-    error_num = HA_ERR_OUT_OF_MEM;
-    goto error;
-  }
-#ifdef XID_CACHE_IS_SPLITTED
-  pthread_mutex_unlock(&spd_db_att_LOCK_xid_cache[idx]);
-#else
-  pthread_mutex_unlock(spd_db_att_LOCK_xid_cache);
-#endif
-#endif
   thd_proc_info(thd, old_proc_info);
   DBUG_RETURN(0);
 
 error:
-#ifdef SPIDER_XID_USES_xid_cache_iterate
-#else
-#ifdef XID_CACHE_IS_SPLITTED
-  pthread_mutex_unlock(&spd_db_att_LOCK_xid_cache[idx]);
-#else
-  pthread_mutex_unlock(spd_db_att_LOCK_xid_cache);
-#endif
-#endif
   thd_proc_info(thd, old_proc_info);
   DBUG_RETURN(error_num);
 }
@@ -1670,25 +1617,8 @@ static int spider_xa_unlock(
   THD *thd = current_thd;
   const char *old_proc_info;
   DBUG_ENTER("spider_xa_unlock");
-#ifdef SPIDER_XID_USES_xid_cache_iterate
-#else
-#endif
   old_proc_info = thd_proc_info(thd, "Unlocking xid by Spider");
-#ifdef SPIDER_XID_USES_xid_cache_iterate
   xid_cache_delete(thd, xid_state);
-#else
-#ifdef XID_CACHE_IS_SPLITTED
-  pthread_mutex_lock(&spd_db_att_LOCK_xid_cache[idx]);
-#else
-  pthread_mutex_lock(spd_db_att_LOCK_xid_cache);
-#endif
-  my_hash_delete(spd_db_att_xid_cache, (uchar *)xid_state);
-#ifdef XID_CACHE_IS_SPLITTED
-  pthread_mutex_unlock(&spd_db_att_LOCK_xid_cache[idx]);
-#else
-  pthread_mutex_unlock(spd_db_att_LOCK_xid_cache);
-#endif
-#endif
   thd_proc_info(thd, old_proc_info);
   DBUG_RETURN(0);
 }
@@ -2786,13 +2716,11 @@ int spider_internal_xa_commit_by_xid(
       goto error;
     }
 
-    if (
-      !(conn = spider_get_conn(
-        &tmp_share, 0, tmp_share.conn_keys[0], trx, NULL, FALSE, FALSE,
-        SPIDER_CONN_KIND_MYSQL, &error_num)) &&
-      (force_commit == 0 ||
-        (force_commit == 1 && error_num != ER_XAER_NOTA))
-    ) {
+    if (!(conn= spider_get_conn(&tmp_share, 0, tmp_share.conn_keys[0], trx,
+                                NULL, FALSE, FALSE, &error_num)) &&
+        (force_commit == 0 ||
+         (force_commit == 1 && error_num != ER_XAER_NOTA)))
+    {
       spider_sys_index_end(table_xa_member);
       spider_free_tmp_share_alloc(&tmp_share);
       free_root(&mem_root, MYF(0));
@@ -3015,13 +2943,11 @@ int spider_internal_xa_rollback_by_xid(
       goto error;
     }
 
-    if (
-      !(conn = spider_get_conn(
-        &tmp_share, 0, tmp_share.conn_keys[0], trx, NULL, FALSE, FALSE,
-        SPIDER_CONN_KIND_MYSQL, &error_num)) &&
-      (force_commit == 0 ||
-        (force_commit == 1 && error_num != ER_XAER_NOTA))
-    ) {
+    if (!(conn= spider_get_conn(&tmp_share, 0, tmp_share.conn_keys[0], trx,
+                                NULL, FALSE, FALSE, &error_num)) &&
+        (force_commit == 0 ||
+         (force_commit == 1 && error_num != ER_XAER_NOTA)))
+    {
       spider_sys_index_end(table_xa_member);
       spider_free_tmp_share_alloc(&tmp_share);
       free_root(&mem_root, MYF(0));
@@ -3511,11 +3437,8 @@ int spider_end_trx(
   DBUG_RETURN(error_num);
 }
 
-int spider_check_trx_and_get_conn(
-  THD *thd,
-  ha_spider *spider,
-  bool use_conn_kind
-) {
+int spider_check_trx_and_get_conn(THD *thd, ha_spider *spider)
+{
   int error_num, roop_count, search_link_idx;
   SPIDER_TRX *trx;
   SPIDER_SHARE *share = spider->share;
@@ -3615,22 +3538,16 @@ int spider_check_trx_and_get_conn(
           spider->conn_link_idx, roop_count, share->link_count,
           SPIDER_LINK_STATUS_RECOVERY)
       ) {
-        uint tgt_conn_kind = (use_conn_kind ? spider->conn_kind[roop_count] :
-          SPIDER_CONN_KIND_MYSQL);
         if (roop_count == spider->search_link_idx)
           search_link_idx_is_checked = TRUE;
-        if (
-            tgt_conn_kind == SPIDER_CONN_KIND_MYSQL &&
-              !spider->conns[roop_count]
-        ) {
+        if (!spider->conns[roop_count])
+        {
           *spider->conn_keys[roop_count] = first_byte;
           if (
             !(conn =
               spider_get_conn(share, roop_count,
                 spider->conn_keys[roop_count], trx,
                 spider, FALSE, TRUE,
-                use_conn_kind ? spider->conn_kind[roop_count] :
-                  SPIDER_CONN_KIND_MYSQL,
                 &error_num))
           ) {
             if (
@@ -3710,8 +3627,6 @@ int spider_check_trx_and_get_conn(
               spider_get_conn(share, roop_count,
                 spider->conn_keys[roop_count], trx,
                 spider, FALSE, TRUE,
-                use_conn_kind ? spider->conn_kind[roop_count] :
-                  SPIDER_CONN_KIND_MYSQL,
                 &error_num))
           ) {
             if (

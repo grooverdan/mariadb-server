@@ -1,5 +1,5 @@
 /* Copyright (c) 2000, 2015, Oracle and/or its affiliates.
-   Copyright (c) 2008, 2022, MariaDB
+   Copyright (c) 2008, 2023, MariaDB
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -133,8 +133,9 @@
 
 #include <my_service_manager.h>
 
-#define mysqld_charset &my_charset_latin1
+#include <source_revision.h>
 
+#define mysqld_charset &my_charset_latin1
 
 extern "C" {					// Because of SCO 3.2V4.2
 #include <sys/stat.h>
@@ -2291,7 +2292,7 @@ static void activate_tcp_port(uint port,
                               Dynamic_array<MYSQL_SOCKET> *sockets,
                               bool is_extra_port= false)
 {
-  struct addrinfo *ai, *a;
+  struct addrinfo *ai, *a = NULL, *head = NULL;
   struct addrinfo hints;
   int error;
   int	arg;
@@ -2312,16 +2313,52 @@ static void activate_tcp_port(uint port,
     real_bind_addr_str= my_bind_addr_str;
 
   my_snprintf(port_buf, NI_MAXSERV, "%d", port);
-  error= getaddrinfo(real_bind_addr_str, port_buf, &hints, &ai);
-  if (unlikely(error != 0))
-  {
-    DBUG_PRINT("error",("Got error: %d from getaddrinfo()", error));
 
-    sql_print_error("%s: %s", ER_DEFAULT(ER_IPSOCK_ERROR), gai_strerror(error));
-    unireg_abort(1);				/* purecov: tested */
+  if (real_bind_addr_str && *real_bind_addr_str)
+  {
+
+    char *end;
+    char address[FN_REFLEN];
+
+    do
+    {
+      end= strcend(real_bind_addr_str, ',');
+      strmake(address, real_bind_addr_str, (uint) (end - real_bind_addr_str));
+
+      error= getaddrinfo(address, port_buf, &hints, &ai);
+      if (unlikely(error != 0))
+      {
+        DBUG_PRINT("error", ("Got error: %d from getaddrinfo()", error));
+
+        sql_print_error("%s: %s", ER_DEFAULT(ER_IPSOCK_ERROR),
+                        gai_strerror(error));
+        unireg_abort(1); /* purecov: tested */
+      }
+
+      if (!head)
+      {
+        head= ai;
+      }
+      if (a)
+      {
+        a->ai_next= ai;
+      }
+      a= ai;
+      while (a->ai_next)
+      {
+        a= a->ai_next;
+      }
+
+      real_bind_addr_str= end + 1;
+    } while (*end);
+  }
+  else
+  {
+    error= getaddrinfo(real_bind_addr_str, port_buf, &hints, &ai);
+    head= ai;
   }
 
-  for (a= ai; a != NULL; a= a->ai_next)
+  for (a= head; a != NULL; a= a->ai_next)
   {
     ip_sock= mysql_socket_socket(key_socket_tcpip, a->ai_family,
                                  a->ai_socktype, a->ai_protocol);
@@ -2410,9 +2447,31 @@ static void activate_tcp_port(uint port,
       if (ret < 0)
       {
         char buff[100];
+        int s_errno= socket_errno;
         sprintf(buff, "Can't start server: Bind on TCP/IP port. Got error: %d",
-                (int) socket_errno);
+                (int) s_errno);
         sql_perror(buff);
+        /*
+          Linux will quite happily bind to addresses not present. The
+          mtr test main.bind_multiple_addresses_resolution relies on this.
+          For Windows, this is fatal and generates the error:
+            WSAEADDRNOTAVAIL: The requested address is not valid in its context
+          In this case, where multiple addresses where specified, maybe
+          we can live with an error in the log and hope the other addresses
+          are successful. We catch if no successful bindings occur at the
+          end of this function.
+
+          FreeBSD returns EADDRNOTAVAIL, and EADDRNOTAVAIL is even in Linux
+          manual pages. So may was well apply uniform behaviour.
+        */
+#ifdef _WIN32
+        if (s_errno == WSAEADDRNOTAVAIL)
+	  continue;
+#endif
+#ifdef EADDRNOTAVAIL
+        if (s_errno == EADDRNOTAVAIL)
+	  continue;
+#endif
         sql_print_error("Do you already have another server running on "
                         "port: %u ?", port);
         unireg_abort(1);
@@ -2433,7 +2492,12 @@ static void activate_tcp_port(uint port,
     }
   }
 
-  freeaddrinfo(ai);
+  freeaddrinfo(head);
+  if (head && sockets->size() == 0)
+  {
+    sql_print_error("No TCP address could be bound to");
+    unireg_abort(1);
+  }
   DBUG_VOID_RETURN;
 }
 
@@ -4051,21 +4115,6 @@ static int init_common_variables()
 
   mysql_real_data_home_len= uint(strlen(mysql_real_data_home));
 
-  if (!opt_abort)
-  {
-    if (IS_SYSVAR_AUTOSIZE(&server_version_ptr))
-      sql_print_information("%s (server %s) starting as process %lu ...",
-                            my_progname, server_version, (ulong) getpid());
-    else
-    {
-      char real_server_version[SERVER_VERSION_LENGTH];
-      set_server_version(real_server_version, sizeof(real_server_version));
-      sql_print_information("%s (server %s as %s) starting as process %lu ...",
-                            my_progname, real_server_version, server_version,
-                            (ulong) getpid());
-    }
-  }
-
   sf_leaking_memory= 0; // no memory leaks from now on
 
 #ifndef EMBEDDED_LIBRARY
@@ -4919,6 +4968,14 @@ static int init_server_components()
   error_handler_hook= my_message_sql;
   proc_info_hook= set_thd_stage_info;
 
+  /*
+￼    Print source revision hash, as one of the first lines, if not the
+￼    first in error log, for troubleshooting and debugging purposes
+￼  */
+  if (!opt_help)
+    sql_print_information("Starting MariaDB %s source revision %s as process %lu",
+                          server_version, SOURCE_REVISION, (ulong) getpid());
+
 #ifdef WITH_PERFSCHEMA_STORAGE_ENGINE
   /*
     Parsing the performance schema command line option may have reported
@@ -5262,6 +5319,10 @@ static int init_server_components()
       MARIADB_REMOVED_OPTION("innodb-thread-concurrency"),
       MARIADB_REMOVED_OPTION("innodb-thread-sleep-delay"),
       MARIADB_REMOVED_OPTION("innodb-undo-logs"),
+
+      /* The following options were deprecated in 10.9 */
+      MARIADB_REMOVED_OPTION("innodb-change-buffering"),
+
       {0, 0, 0, 0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0}
     };
     /*
@@ -6562,7 +6623,7 @@ struct my_option my_long_options[]=
    "names at once (in 'datadir') and is normally the only option you need "
    "for specifying log files. Sets names for --log-bin, --log-bin-index, "
    "--relay-log, --relay-log-index, --general-log-file, "
-   "--log-slow-query-log-file, --log-error-file, and --pid-file",
+   "--log-slow-query-file, --log-error-file, and --pid-file",
    &opt_log_basename, &opt_log_basename, 0, GET_STR, REQUIRED_ARG,
    0, 0, 0, 0, 0, 0},
   {"log-bin", OPT_BIN_LOG,
@@ -8092,45 +8153,11 @@ mysqld_get_one_option(const struct my_option *opt, const char *argument,
   case (int)OPT_REPLICATE_REWRITE_DB:
   {
     /* See also OPT_REWRITE_DB handling in client/mysqlbinlog.cc */
-    const char* key= argument, *ptr, *val;
-
-    // Skipp pre-space in key
-    while (*key && my_isspace(mysqld_charset, *key))
-      key++;
-
-    // Where val begins
-    if (!(ptr= strstr(key, "->")))
+    if (cur_rpl_filter->add_rewrite_db(argument))
     {
-      sql_print_error("Bad syntax in replicate-rewrite-db: missing '->'");
+      sql_print_error("Bad syntax in replicate-rewrite-db.Expected syntax is FROM->TO.");
       return 1;
     }
-    val= ptr+2;
-
-    // Skip blanks at the end of key
-    while (ptr > key && my_isspace(mysqld_charset, ptr[-1]))
-      ptr--;
-    if (ptr == key)
-    {
-      sql_print_error("Bad syntax in replicate-rewrite-db - empty FROM db");
-      return 1;
-    }
-    key= strmake_root(&startup_root, key, (size_t) (ptr-key));
-
-    /* Skipp pre space in value */
-    while (*val && my_isspace(mysqld_charset, *val))
-      val++;
-
-    // Value ends with \0 or space
-    for (ptr= val; *ptr && !my_isspace(&my_charset_latin1, *ptr) ; ptr++)
-    {}
-    if (ptr == val)
-    {
-      sql_print_error("Bad syntax in replicate-rewrite-db - empty TO db");
-      return 1;
-    }
-    val= strmake_root(&startup_root, val, (size_t) (ptr-val));
-
-    cur_rpl_filter->add_db_rewrite(key, val);
     break;
   }
   case (int)OPT_SLAVE_PARALLEL_MODE:

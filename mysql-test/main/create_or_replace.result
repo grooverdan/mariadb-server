@@ -579,5 +579,4 @@ DROP TABLE IF EXISTS tm, t;
 #
 # End of 10.3 tests
 #
-# End of 10.4 tests
 SET GLOBAL innodb_stats_persistent=@save_persistent;

@@ -573,7 +573,7 @@ bool Item_func_in::create_value_list_for_tvc(THD *thd,
 
     if (is_list_of_rows)
     {
-      Item_row *row_list= (Item_row *)(args[i]->build_clone(thd));
+      Item_row *row_list= (Item_row *)(args[i]);
 
       if (!row_list)
         return true;
@@ -598,8 +598,7 @@ bool Item_func_in::create_value_list_for_tvc(THD *thd,
         sprintf(col_name, "_col_%i", 1);
         args[i]->set_name(thd, col_name, strlen(col_name), thd->charset());
       }
-      Item *arg_clone= args[i]->build_clone(thd);
-      if (!arg_clone || tvc_value->push_back(arg_clone))
+      if (tvc_value->push_back(args[i]))
         return true;
     }
 
@@ -985,7 +984,7 @@ Item *Item_func_in::in_predicate_to_in_subs_transformer(THD *thd,
   */
   if (mysql_new_select(lex, 1, NULL))
     goto err;
-  mysql_init_select(lex);
+  lex->init_select();
   /* Create item list as '*' for the subquery SQ */
   Item *item;
   SELECT_LEX *sq_select; // select for IN subquery;
@@ -1003,7 +1002,7 @@ Item *Item_func_in::in_predicate_to_in_subs_transformer(THD *thd,
   SELECT_LEX_UNIT *derived_unit; // unit for tvc_select
   if (mysql_new_select(lex, 1, NULL))
     goto err;
-  mysql_init_select(lex);
+  lex->init_select();
   tvc_select= lex->current_select;
   derived_unit= tvc_select->master_unit();
   tvc_select->set_linkage(DERIVED_TABLE_TYPE);

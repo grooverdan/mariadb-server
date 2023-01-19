@@ -1,7 +1,7 @@
 /*****************************************************************************
 
 Copyright (c) 1996, 2016, Oracle and/or its affiliates. All Rights Reserved.
-Copyright (c) 2015, 2022, MariaDB Corporation.
+Copyright (c) 2015, 2023, MariaDB Corporation.
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
@@ -410,12 +410,12 @@ void trx_t::free()
 #endif
   read_view.mem_noaccess();
   MEM_NOACCESS(&lock, sizeof lock);
-  MEM_NOACCESS(&op_info, sizeof op_info);
-  MEM_NOACCESS(&isolation_level, sizeof isolation_level);
-  MEM_NOACCESS(&check_foreigns, sizeof check_foreigns);
+  MEM_NOACCESS(&op_info, sizeof op_info +
+               sizeof(unsigned) /* isolation_level,
+                                   check_foreigns, check_unique_secondary,
+                                   bulk_insert */);
   MEM_NOACCESS(&is_registered, sizeof is_registered);
   MEM_NOACCESS(&active_commit_ordered, sizeof active_commit_ordered);
-  MEM_NOACCESS(&check_unique_secondary, sizeof check_unique_secondary);
   MEM_NOACCESS(&flush_log_later, sizeof flush_log_later);
   MEM_NOACCESS(&must_flush_log_later, sizeof must_flush_log_later);
   MEM_NOACCESS(&duplicates, sizeof duplicates);
@@ -728,6 +728,12 @@ corrupted:
 		return err;
 	}
 
+	if (trx_sys.is_undo_empty()) {
+func_exit:
+		purge_sys.clone_oldest_view<true>();
+		return DB_SUCCESS;
+	}
+
 	/* Look from the rollback segments if there exist undo logs for
 	transactions. */
 	const time_t	start_time	= time(NULL);
@@ -788,8 +794,7 @@ corrupted:
 		ib::info() << "Trx id counter is " << trx_sys.get_max_trx_id();
 	}
 
-	purge_sys.clone_oldest_view<true>();
-	return DB_SUCCESS;
+	goto func_exit;
 }
 
 /** Assign a persistent rollback segment in a round-robin fashion,
@@ -846,8 +851,7 @@ static trx_rseg_t* trx_assign_rseg_low()
 			ut_ad(rseg->is_persistent());
 
 			if (rseg->space != fil_system.sys_space) {
-				if (rseg->skip_allocation()
-				    || !srv_undo_tablespaces) {
+				if (rseg->skip_allocation()) {
 					continue;
 				}
 			} else if (const fil_space_t *space =
@@ -1164,7 +1168,7 @@ static void trx_flush_log_if_needed_low(lsn_t lsn, const trx_t *trx)
     callback= &cb;
   }
 
-  log_write_up_to(lsn, srv_file_flush_method != SRV_NOSYNC &&
+  log_write_up_to(lsn, !my_disable_sync &&
                   (srv_flush_log_at_trx_commit & 1), callback);
 }
 

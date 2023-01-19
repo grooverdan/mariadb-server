@@ -311,6 +311,8 @@ extern const char *innodb_checksum_algorithm_names[];
 extern TYPELIB innodb_checksum_algorithm_typelib;
 extern const char *innodb_flush_method_names[];
 extern TYPELIB innodb_flush_method_typelib;
+/** Ignored option */
+static ulong innodb_flush_method;
 
 static const char *binlog_info_values[] = {"off", "lockless", "on", "auto",
 					   NullS};
@@ -1032,6 +1034,8 @@ enum options_xtrabackup
 #if defined __linux__ || defined _WIN32
   OPT_INNODB_LOG_FILE_BUFFERING,
 #endif
+  OPT_INNODB_DATA_FILE_BUFFERING,
+  OPT_INNODB_DATA_FILE_WRITE_THROUGH,
   OPT_INNODB_LOG_FILE_SIZE,
   OPT_INNODB_OPEN_FILES,
   OPT_XTRA_DEBUG_SYNC,
@@ -1368,7 +1372,7 @@ struct my_option xb_client_options[]= {
 
     {"incremental-history-name", OPT_INCREMENTAL_HISTORY_NAME,
      "This option specifies the name of the backup series stored in the "
-     "PERCONA_SCHEMA.xtrabackup_history history record to base an "
+     XB_HISTORY_TABLE " history record to base an "
      "incremental backup on. Xtrabackup will search the history table "
      "looking for the most recent (highest innodb_to_lsn), successful "
      "backup in the series and take the to_lsn value to use as the "
@@ -1383,7 +1387,7 @@ struct my_option xb_client_options[]= {
 
     {"incremental-history-uuid", OPT_INCREMENTAL_HISTORY_UUID,
      "This option specifies the UUID of the specific history record "
-     "stored in the PERCONA_SCHEMA.xtrabackup_history to base an "
+     "stored in the " XB_HISTORY_TABLE " table to base an "
      "incremental backup on. --incremental-history-name, "
      "--incremental-basedir and --incremental-lsn. If no valid lsn can be "
      "found (no success record with that uuid), an error will be returned."
@@ -1412,7 +1416,7 @@ struct my_option xb_client_options[]= {
 
     {"history", OPT_HISTORY,
      "This option enables the tracking of backup history in the "
-     "PERCONA_SCHEMA.xtrabackup_history table. An optional history "
+     XB_HISTORY_TABLE " table. An optional history "
      "series name may be specified that will be placed with the history "
      "record for the current backup being taken.",
      NULL, NULL, 0, GET_STR, OPT_ARG, 0, 0, 0, 0, 0, 0},
@@ -1583,10 +1587,10 @@ struct my_option xb_server_options[] =
    FALSE, 0, 0, 0, 0, 0},
 
   {"innodb_flush_method", OPT_INNODB_FLUSH_METHOD,
-   "With which method to flush data.",
-   &srv_file_flush_method, &srv_file_flush_method,
+   "Ignored parameter with no effect",
+   &innodb_flush_method, &innodb_flush_method,
    &innodb_flush_method_typelib, GET_ENUM, REQUIRED_ARG,
-   IF_WIN(SRV_ALL_O_DIRECT_FSYNC, SRV_O_DIRECT), 0, 0, 0, 0, 0},
+   4/* O_DIRECT */, 0, 0, 0, 0, 0},
 
   {"innodb_log_buffer_size", OPT_INNODB_LOG_BUFFER_SIZE,
    "Redo log buffer size in bytes.",
@@ -1600,6 +1604,16 @@ struct my_option xb_server_options[] =
    (G_PTR*) &log_sys.log_buffered, 0, GET_BOOL, NO_ARG,
    TRUE, 0, 0, 0, 0, 0},
 #endif
+  {"innodb_data_file_buffering", OPT_INNODB_DATA_FILE_BUFFERING,
+   "Whether the file system cache for data files is enabled during --backup",
+   (G_PTR*) &fil_system.buffered,
+   (G_PTR*) &fil_system.buffered, 0, GET_BOOL, NO_ARG,
+   FALSE, 0, 0, 0, 0, 0},
+  {"innodb_data_file_write_through", OPT_INNODB_DATA_FILE_WRITE_THROUGH,
+   "Whether each write to data files writes through",
+   (G_PTR*) &fil_system.write_through,
+   (G_PTR*) &fil_system.write_through, 0, GET_BOOL, NO_ARG,
+   FALSE, 0, 0, 0, 0, 0},
   {"innodb_log_file_size", OPT_INNODB_LOG_FILE_SIZE,
    "Ignored for mysqld option compatibility",
    (G_PTR*) &srv_log_file_size, (G_PTR*) &srv_log_file_size, 0,
@@ -1653,7 +1667,7 @@ struct my_option xb_server_options[] =
   {"innodb_undo_tablespaces", OPT_INNODB_UNDO_TABLESPACES,
    "Number of undo tablespaces to use.",
    (G_PTR*)&srv_undo_tablespaces, (G_PTR*)&srv_undo_tablespaces,
-   0, GET_UINT, REQUIRED_ARG, 0, 0, 126, 0, 1, 0},
+   0, GET_UINT, REQUIRED_ARG, 3, 0, 126, 0, 1, 0},
 
   {"innodb_compression_level", OPT_INNODB_COMPRESSION_LEVEL,
    "Compression level used for zlib compression.",
@@ -1917,12 +1931,6 @@ xb_get_one_option(const struct my_option *opt,
     ADD_PRINT_PARAM_OPT(srv_log_group_home_dir);
     break;
 
-  case OPT_INNODB_FLUSH_METHOD:
-    ut_a(srv_file_flush_method
-	 <= IF_WIN(SRV_ALL_O_DIRECT_FSYNC, SRV_O_DIRECT_NO_FSYNC));
-    ADD_PRINT_PARAM_OPT(innodb_flush_method_names[srv_file_flush_method]);
-    break;
-
   case OPT_INNODB_PAGE_SIZE:
 
     ADD_PRINT_PARAM_OPT(innobase_page_size);
@@ -2160,12 +2168,6 @@ static bool innodb_init_param()
 	srv_max_n_open_files = ULINT_UNDEFINED - 5;
 
 	srv_print_verbose_log = verbose ? 2 : 1;
-
-	/* Store the default charset-collation number of this MySQL
-	installation */
-
-	/* We cannot treat characterset here for now!! */
-	data_mysql_default_charset_coll = (ulint)default_charset_info->number;
 
 	ut_ad(DATA_MYSQL_BINARY_CHARSET_COLL == my_charset_bin.number);
 
@@ -3859,85 +3861,6 @@ next_datadir_item:
 	return(err);
 }
 
-/** Assign srv_undo_space_id_start variable if there are undo tablespace present.
-Read the TRX_SYS page from ibdata1 file and get the minimum space id from
-the first slot rollback segments of TRX_SYS_PAGE_NO.
-@retval DB_ERROR if file open or page read failed.
-@retval DB_SUCCESS if srv_undo_space_id assigned successfully. */
-static dberr_t xb_assign_undo_space_start()
-{
-
-	pfs_os_file_t	file;
-	bool		ret;
-	dberr_t		error = DB_SUCCESS;
-	uint32_t	space;
-	uint32_t 	fsp_flags;
-	int		n_retries = 5;
-
-	file = os_file_create(0, srv_sys_space.first_datafile()->filepath(),
-		OS_FILE_OPEN, OS_FILE_NORMAL, OS_DATA_FILE, true, &ret);
-
-	if (!ret) {
-		msg("Error opening %s", srv_sys_space.first_datafile()->filepath());
-		return DB_ERROR;
-	}
-
-	byte* page = static_cast<byte*>
-		(aligned_malloc(srv_page_size, srv_page_size));
-
-	if (os_file_read(IORequestRead, file, page, 0, srv_page_size, nullptr)
-	    != DB_SUCCESS) {
-		msg("Reading first page failed.\n");
-		error = DB_ERROR;
-		goto func_exit;
-	}
-
-	fsp_flags = mach_read_from_4(
-		page + FSP_HEADER_OFFSET + FSP_SPACE_FLAGS);
-retry:
-	if (os_file_read(IORequestRead, file, page,
-			 TRX_SYS_PAGE_NO << srv_page_size_shift,
-			 srv_page_size, nullptr) != DB_SUCCESS) {
-		msg("Reading TRX_SYS page failed.");
-		error = DB_ERROR;
-		goto func_exit;
-	}
-
-	/* TRX_SYS page can't be compressed or encrypted. */
-	if (buf_page_is_corrupted(false, page, fsp_flags)) {
-		if (n_retries--) {
-			std::this_thread::sleep_for(
-				std::chrono::milliseconds(1));
-			goto retry;
-		} else {
-			msg("mariabackup: TRX_SYS page corrupted.\n");
-			error = DB_ERROR;
-			goto func_exit;
-		}
-	}
-
-	/* 0th slot always points to system tablespace.
-	1st slot should point to first undotablespace which is minimum. */
-
-	ut_ad(mach_read_from_4(TRX_SYS + TRX_SYS_RSEGS
-			       + TRX_SYS_RSEG_SLOT_SIZE
-			       + TRX_SYS_RSEG_PAGE_NO + page)
-	      != FIL_NULL);
-
-	space = mach_read_from_4(TRX_SYS + TRX_SYS_RSEGS
-				 + TRX_SYS_RSEG_SLOT_SIZE
-				 + TRX_SYS_RSEG_SPACE + page);
-
-	srv_undo_space_id_start = space;
-
-func_exit:
-	aligned_free(page);
-	ret = os_file_close(file);
-	ut_a(ret);
-
-	return error;
-}
-
 /** Close all undo tablespaces while applying incremental delta */
 static void xb_close_undo_tablespaces()
 {
@@ -3990,14 +3913,7 @@ xb_load_tablespaces()
 	}
 
 	/* Add separate undo tablespaces to fil_system */
-
-	err = xb_assign_undo_space_start();
-
-	if (err != DB_SUCCESS) {
-		return err;
-	}
-
-	err = srv_undo_tablespaces_init(false);
+	err = srv_undo_tablespaces_init(false, nullptr);
 
 	if (err != DB_SUCCESS) {
 		return(err);

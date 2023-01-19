@@ -65,7 +65,7 @@
 #include "transaction.h"
 #include "opt_trace.h"
 #include "my_cpu.h"
-
+#include "key.h"
 
 #include "lex_symbol.h"
 #define KEYWORD_SIZE 64
@@ -150,7 +150,8 @@ static int show_create_sequence(THD *thd, TABLE_LIST *table_list,
 
 static const LEX_CSTRING *view_algorithm(TABLE_LIST *table);
 
-bool get_lookup_field_values(THD *, COND *, TABLE_LIST *, LOOKUP_FIELD_VALUES *);
+bool get_lookup_field_values(THD *, COND *, bool, TABLE_LIST *,
+                             LOOKUP_FIELD_VALUES *);
 
 /**
   Try to lock a mutex, but give up after a short while to not cause deadlocks
@@ -340,7 +341,7 @@ int fill_all_plugins(THD *thd, TABLE_LIST *tables, COND *cond)
   TABLE *table= tables->table;
   LOOKUP_FIELD_VALUES lookup;
 
-  if (get_lookup_field_values(thd, cond, tables, &lookup))
+  if (get_lookup_field_values(thd, cond, true, tables, &lookup))
     DBUG_RETURN(0);
 
   if (lookup.db_value.str && !lookup.db_value.str[0])
@@ -1405,12 +1406,8 @@ bool mysqld_show_create_db(THD *thd, LEX_CSTRING *dbname,
   if (test_all_bits(sctx->master_access, DB_ACLS))
     db_access=DB_ACLS;
   else
-  {
-    db_access= acl_get(sctx->host, sctx->ip, sctx->priv_user, dbname->str, 0) |
+    db_access= acl_get_all3(sctx, dbname->str, FALSE) |
                sctx->master_access;
-    if (sctx->priv_role[0])
-      db_access|= acl_get("", "", sctx->priv_role, dbname->str, 0);
-  }
 
   if (!(db_access & DB_ACLS) && check_grant_db(thd,dbname->str))
   {
@@ -4256,7 +4253,8 @@ COND *make_cond_for_info_schema(THD *thd, COND *cond, TABLE_LIST *table)
     1             error, there can be no matching records for the condition
 */
 
-bool get_lookup_field_values(THD *thd, COND *cond, TABLE_LIST *tables,
+bool get_lookup_field_values(THD *thd, COND *cond, bool fix_table_name_case,
+                             TABLE_LIST *tables,
                              LOOKUP_FIELD_VALUES *lookup_field_values)
 {
   LEX *lex= thd->lex;
@@ -4291,7 +4289,7 @@ bool get_lookup_field_values(THD *thd, COND *cond, TABLE_LIST *tables,
                          lex->first_select_lex()->db.length);
     if (wild)
     {
-      thd->make_lex_string(&lookup_field_values->table_value, 
+      thd->make_lex_string(&lookup_field_values->table_value,
                            wild->ptr(), wild->length());
       lookup_field_values->wild_table_value= 1;
     }
@@ -4314,7 +4312,8 @@ bool get_lookup_field_values(THD *thd, COND *cond, TABLE_LIST *tables,
     if (lookup_field_values->db_value.str && lookup_field_values->db_value.str[0])
       my_casedn_str(system_charset_info,
                     (char*) lookup_field_values->db_value.str);
-    if (lookup_field_values->table_value.str && 
+    if (fix_table_name_case &&
+        lookup_field_values->table_value.str &&
         lookup_field_values->table_value.str[0])
       my_casedn_str(system_charset_info,
                     (char*) lookup_field_values->table_value.str);
@@ -5299,7 +5298,7 @@ int get_all_tables(THD *thd, TABLE_LIST *tables, COND *cond)
                        &thd->col_access, NULL, 0, 1) ||
           (!thd->col_access && check_grant_db(thd, db_name->str))) ||
         sctx->master_access & (DB_ACLS | SHOW_DB_ACL) ||
-        acl_get(sctx->host, sctx->ip, sctx->priv_user, db_name->str, 0))
+        acl_get_all3(sctx, db_name->str, 0))
 #endif
     {
       Dynamic_array<LEX_CSTRING*> table_names(PSI_INSTRUMENT_MEM);
@@ -5469,7 +5468,7 @@ int fill_schema_schemata(THD *thd, TABLE_LIST *tables, COND *cond)
 #endif
   DBUG_ENTER("fill_schema_shemata");
 
-  if (get_lookup_field_values(thd, cond, tables, &lookup_field_vals))
+  if (get_lookup_field_values(thd, cond, true, tables, &lookup_field_vals))
     DBUG_RETURN(0);
   DBUG_PRINT("INDEX VALUES",("db_name: %s  table_name: %s",
                              lookup_field_vals.db_value.str,
@@ -5499,9 +5498,7 @@ int fill_schema_schemata(THD *thd, TABLE_LIST *tables, COND *cond)
     }
 #ifndef NO_EMBEDDED_ACCESS_CHECKS
     if (sctx->master_access & (DB_ACLS | SHOW_DB_ACL) ||
-        acl_get(sctx->host, sctx->ip, sctx->priv_user, db_name->str, false) ||
-        (sctx->priv_role[0] ?
-             acl_get("", "", sctx->priv_role, db_name->str, false) : NO_ACL) ||
+        acl_get_all3(sctx, db_name->str, false) ||
         !check_grant_db(thd, db_name->str))
 #endif
     {
@@ -6450,24 +6447,81 @@ static inline void copy_field_as_string(Field *to_field, Field *from_field)
 
 
 /**
+  @brief When scanning mysql.proc check if we should skip this record or even
+         stop the scan
+
+  @param      name_field_charset    mysql.proc.name field charset info
+  @param      lookup                values from the WHERE clause which are
+                                    used for the index lookup
+  @param      db                    mysql.proc.db field value of
+                                    the current record
+  @param      name                  mysql.proc.name field value of
+                                    the current record
+
+  @return  Result
+    @retval  -1                    The record is match (do further processing)
+    @retval   0                    Skip this record, it doesn't match.
+    @retval   HA_ERR_END_OF_FILE   Stop scanning, no further matches possible
+*/
+
+int check_proc_record(const CHARSET_INFO *name_field_charset,
+                      const LOOKUP_FIELD_VALUES *lookup,
+                      const LEX_CSTRING &db,
+                      const LEX_CSTRING &name)
+{
+  if (lookup->db_value.str && cmp(lookup->db_value, db))
+  {
+    /*
+      We have the name of target database. If we got a non-matching
+      record, this means we've finished reading matching mysql.proc records
+    */
+    return HA_ERR_END_OF_FILE;
+  }
+
+  if (lookup->table_value.str)
+  {
+    if ((my_ci_strnncoll(name_field_charset,
+                         (const uchar *) lookup->table_value.str,
+                         lookup->table_value.length,
+                         (const uchar *) name.str, name.length, 0)))
+    {
+      /* Routine name doesn't match. */
+      if (lookup->db_value.str)
+      {
+        /*
+          We're using index lookup. A non-matching record means we've
+          finished reading matches.
+        */
+        return HA_ERR_END_OF_FILE;
+      }
+      else
+      {
+        /* The routine name doesn't match, but we're scanning all databases */
+        return 0; /* Continue scanning */
+      }
+    }
+  }
+  return -1; /* This is a match */
+}
+
+/**
   @brief Store record into I_S.PARAMETERS table
 
   @param[in]      thd                   thread handler
   @param[in]      table                 I_S table
   @param[in]      proc_table            'mysql.proc' table
-  @param[in]      wild                  wild string, not used for now,
-                                        will be useful
-                                        if we add 'SHOW PARAMETERs'
   @param[in]      full_access           if 1 user has privileges on the routine
   @param[in]      sp_user               user in 'user@host' format
 
   @return         Operation status
     @retval       0                     ok
-    @retval       1                     error
+    @retval       != 0                  error / HA_ERR_END_OF_FILE
+                                                (if there are no more
+                                                matching records)
 */
 
-bool store_schema_params(THD *thd, TABLE *table, TABLE *proc_table,
-                         const char *wild, bool full_access,
+int store_schema_params(THD *thd, TABLE *table, TABLE *proc_table,
+                         LOOKUP_FIELD_VALUES *lookup, bool full_access,
                          const char *sp_user)
 {
   TABLE_SHARE share;
@@ -6481,6 +6535,7 @@ bool store_schema_params(THD *thd, TABLE *table, TABLE *proc_table,
   bool free_sp_head;
   bool error= 0;
   sql_mode_t sql_mode;
+  int rc;
   DBUG_ENTER("store_schema_params");
 
   bzero((char*) &tbl, sizeof(TABLE));
@@ -6489,6 +6544,12 @@ bool store_schema_params(THD *thd, TABLE *table, TABLE *proc_table,
 
   proc_table->field[MYSQL_PROC_FIELD_DB]->val_str_nopad(thd->mem_root, &db);
   proc_table->field[MYSQL_PROC_FIELD_NAME]->val_str_nopad(thd->mem_root, &name);
+
+  CHARSET_INFO *name_cs= proc_table->field[MYSQL_PROC_FIELD_NAME]->charset();
+
+  if ((rc= check_proc_record(name_cs, lookup, db, name)) != -1)
+    DBUG_RETURN(rc); /* either HA_ERR_END_OF_FILE or 0 if name didn't match */
+
   proc_table->field[MYSQL_PROC_FIELD_DEFINER]->val_str_nopad(thd->mem_root, &definer);
   sql_mode= (sql_mode_t) proc_table->field[MYSQL_PROC_FIELD_SQL_MODE]->val_int();
   sph= Sp_handler::handler_mysql_proc((enum_sp_type)
@@ -6592,16 +6653,24 @@ bool store_schema_params(THD *thd, TABLE *table, TABLE *proc_table,
 }
 
 
-bool store_schema_proc(THD *thd, TABLE *table, TABLE *proc_table,
-                       const char *wild, bool full_access, const char *sp_user)
+int store_schema_proc(THD *thd, TABLE *table, TABLE *proc_table,
+                       LOOKUP_FIELD_VALUES *lookup, bool full_access,
+                       const char *sp_user)
 {
   LEX *lex= thd->lex;
   CHARSET_INFO *cs= system_charset_info;
   const Sp_handler *sph;
   LEX_CSTRING db, name, definer, returns= empty_clex_str;
+  const char *wild= thd->lex->wild ? thd->lex->wild->ptr() : NullS;
+  int rc;
 
   proc_table->field[MYSQL_PROC_FIELD_DB]->val_str_nopad(thd->mem_root, &db);
   proc_table->field[MYSQL_PROC_FIELD_NAME]->val_str_nopad(thd->mem_root, &name);
+
+  CHARSET_INFO *name_cs= proc_table->field[MYSQL_PROC_FIELD_NAME]->charset();
+  if ((rc= check_proc_record(name_cs, lookup, db, name)) != -1)
+    return rc; /* either HA_ERR_END_OF_FILE or 0 if name didn't match */
+
   proc_table->field[MYSQL_PROC_FIELD_DEFINER]->val_str_nopad(thd->mem_root, &definer);
   sph= Sp_handler::handler_mysql_proc((enum_sp_type)
                                       proc_table->field[MYSQL_PROC_MYSQL_TYPE]->
@@ -6713,7 +6782,6 @@ int fill_schema_proc(THD *thd, TABLE_LIST *tables, COND *cond)
 {
   TABLE *proc_table;
   TABLE_LIST proc_tables;
-  const char *wild= thd->lex->wild ? thd->lex->wild->ptr() : NullS;
   int res= 0;
   TABLE *table= tables->table;
   bool full_access;
@@ -6733,6 +6801,13 @@ int fill_schema_proc(THD *thd, TABLE_LIST *tables, COND *cond)
   full_access= !check_table_access(thd, SELECT_ACL, &proc_tables, FALSE,
                                    1, TRUE);
 
+  LOOKUP_FIELD_VALUES lookup;
+  if (get_lookup_field_values(thd, cond, false, tables, &lookup))
+  {
+    // There can be no matching records for the condition
+    DBUG_RETURN(0);
+  }
+
   start_new_trans new_trans(thd);
 
   if (!(proc_table= open_proc_table_for_read(thd)))
@@ -6751,33 +6826,54 @@ int fill_schema_proc(THD *thd, TABLE_LIST *tables, COND *cond)
     goto err;
   }
 
-  if ((res= proc_table->file->ha_index_first(proc_table->record[0])))
+  if (lookup.db_value.str)
   {
-    res= (res == HA_ERR_END_OF_FILE) ? 0 : 1;
-    goto err;
-  }
-
-  if (schema_table_idx == SCH_PROCEDURES ?
-      store_schema_proc(thd, table, proc_table, wild, full_access, definer) :
-      store_schema_params(thd, table, proc_table, wild, full_access, definer))
-  {
-    res= 1;
-    goto err;
-  }
-  while (!proc_table->file->ha_index_next(proc_table->record[0]))
-  {
-    if (schema_table_idx == SCH_PROCEDURES ?
-        store_schema_proc(thd, table, proc_table, wild, full_access, definer): 
-        store_schema_params(thd, table, proc_table, wild, full_access, definer))
+    KEY *keyinfo= proc_table->key_info;
+    uint keylen= keyinfo->key_part[0].length;
+    key_part_map keypart_map= 1;
+    enum ha_rkey_function find_flag= HA_READ_PREFIX;
+    const auto sp_name_len= NAME_LEN * 2 + 1 /*for type*/;
+    StringBuffer<sp_name_len> keybuf;
+    keybuf.alloc(proc_table->key_info->key_length);
+    keybuf.length(proc_table->key_info->key_length);
+    proc_table->field[0]->store(lookup.db_value.str, lookup.db_value.length,
+                                system_charset_info);
+    if (lookup.table_value.str)
     {
-      res= 1;
-      goto err;
+      proc_table->field[1]->store(lookup.table_value.str,
+                                  lookup.table_value.length,
+                                  system_charset_info);
+      keylen+= keyinfo->key_part[1].length;
+      keypart_map= 3;
+      find_flag= HA_READ_KEY_EXACT;
     }
+    key_copy((uchar*)keybuf.ptr(), proc_table->record[0], keyinfo, keylen, 0);
+    res= proc_table->file->ha_index_read_map(proc_table->record[0],
+                                             (const uchar*) keybuf.ptr(),
+                                             keypart_map, find_flag);
+  }
+  else
+    res= proc_table->file->ha_index_first(proc_table->record[0]);
+
+  if (res)
+    goto err;
+  
+  res= schema_table_idx == SCH_PROCEDURES ?
+    store_schema_proc(thd, table, proc_table, &lookup, full_access,definer) :
+    store_schema_params(thd, table, proc_table, &lookup, full_access, definer);
+  while (!res && !proc_table->file->ha_index_next(proc_table->record[0]))
+  {
+    res= schema_table_idx == SCH_PROCEDURES ?
+      store_schema_proc(thd, table, proc_table, &lookup, full_access, definer) :
+      store_schema_params(thd, table, proc_table, &lookup, full_access, definer);
   }
 
 err:
   if (proc_table->file->inited)
     (void) proc_table->file->ha_index_end();
+
+  if (res == HA_ERR_END_OF_FILE || res == HA_ERR_KEY_NOT_FOUND)
+    res= 0;
 
   thd->commit_whole_transaction_and_close_tables();
   new_trans.restore_old_transaction();
@@ -8676,7 +8772,8 @@ static bool optimize_for_get_all_tables(THD *thd, TABLE_LIST *tables, COND *cond
     goto end;
   }
 
-  if (get_lookup_field_values(thd, cond, tables, &plan->lookup_field_vals))
+  if (get_lookup_field_values(thd, cond, true, tables,
+                              &plan->lookup_field_vals))
   {
     plan->no_rows= true;
     goto end;
@@ -9868,7 +9965,7 @@ ST_SCHEMA_TABLE schema_tables[]=
   {"OPTIMIZER_TRACE", Show::optimizer_trace_info, 0,
      fill_optimizer_trace_info, NULL, NULL, -1, -1, false, 0},
   {"PARAMETERS", Show::parameters_fields_info, 0,
-   fill_schema_proc, 0, 0, -1, -1, 0, 0},
+   fill_schema_proc, 0, 0, 1, 2, 0, 0},
   {"PARTITIONS", Show::partitions_fields_info, 0,
    get_all_tables, 0, get_schema_partitions_record, 1, 2, 0,
    OPTIMIZE_I_S_TABLE|OPEN_TABLE_ONLY},
@@ -9883,7 +9980,7 @@ ST_SCHEMA_TABLE schema_tables[]=
    0, get_all_tables, 0, get_referential_constraints_record,
    1, 9, 0, OPTIMIZE_I_S_TABLE|OPEN_TABLE_ONLY},
   {"ROUTINES", Show::proc_fields_info, 0,
-   fill_schema_proc, make_proc_old_format, 0, -1, -1, 0, 0},
+   fill_schema_proc, make_proc_old_format, 0, 2, 3, 0, 0},
   {"SCHEMATA", Show::schema_fields_info, 0,
    fill_schema_schemata, make_schemata_old_format, 0, 1, -1, 0, 0},
   {"SCHEMA_PRIVILEGES", Show::schema_privileges_fields_info, 0,

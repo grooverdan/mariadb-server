@@ -70,7 +70,7 @@ disable_pmem()
 
 disable_libfmt()
 {
-  # 0.7+ required
+  # 7.0+ required
   sed '/libfmt-dev/d' -i debian/control
 }
 
@@ -144,7 +144,7 @@ in
     replace_uring_with_aio
     disable_libfmt
     ;&
-  impish|jammy|kinetic)
+  impish|jammy|kinetic|lunar)
     # mariadb-plugin-rocksdb s390x not supported by us (yet)
     # ubuntu doesn't support mips64el yet, so keep this just
     # in case something changes.

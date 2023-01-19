@@ -3671,7 +3671,7 @@ class Vcol_expr_context
   bool inited;
   THD *thd;
   TABLE *table;
-  Query_arena backup_arena;
+  Query_arena backup_arena, *stmt_arena;
   table_map old_map;
   Security_context *save_security_ctx;
   sql_mode_t save_sql_mode;
@@ -3681,6 +3681,7 @@ public:
     inited(false),
     thd(_thd),
     table(_table),
+    stmt_arena(thd->stmt_arena),
     old_map(table->map),
     save_security_ctx(thd->security_ctx),
     save_sql_mode(thd->variables.sql_mode) {}
@@ -3701,6 +3702,7 @@ bool Vcol_expr_context::init()
     thd->security_ctx= tl->security_ctx;
 
   thd->set_n_backup_active_arena(table->expr_arena, &backup_arena);
+  thd->stmt_arena= thd;
 
   inited= true;
   return false;
@@ -3714,6 +3716,7 @@ Vcol_expr_context::~Vcol_expr_context()
   thd->security_ctx= save_security_ctx;
   thd->restore_active_arena(table->expr_arena, &backup_arena);
   thd->variables.sql_mode= save_sql_mode;
+  thd->stmt_arena= stmt_arena;
 }
 
 
@@ -7606,6 +7609,8 @@ void TABLE::mark_columns_needed_for_update()
   }
   if (s->versioned)
   {
+    bitmap_set_bit(write_set, s->vers.start_fieldno);
+    bitmap_set_bit(write_set, s->vers.end_fieldno);
     /*
       For System Versioning we have to read all columns since we store
       a copy of previous row with modified row_end back to a table.
@@ -7663,6 +7668,12 @@ void TABLE::mark_columns_needed_for_insert()
     mark_auto_increment_column();
   if (default_field)
     mark_default_fields_for_write(TRUE);
+  if (s->versioned)
+  {
+    bitmap_set_bit(write_set, s->vers.start_fieldno);
+    bitmap_set_bit(write_set, s->vers.end_fieldno);
+    bitmap_set_bit(read_set, s->vers.end_fieldno);
+  }
   /* Mark virtual columns for insert */
   if (vfield)
     mark_virtual_columns_for_write(TRUE);
@@ -9138,34 +9149,25 @@ bool TABLE::check_period_overlaps(const KEY &key,
   return true;
 }
 
-void TABLE::vers_update_fields()
+/* returns true if vers_end_field was updated */
+bool TABLE::vers_update_fields()
 {
-  if (!vers_write)
+  bool res= false;
+  if (versioned(VERS_TIMESTAMP) && !vers_start_field()->has_explicit_value())
   {
-    file->column_bitmaps_signal();
-    return;
-  }
-
-  if (versioned(VERS_TIMESTAMP))
-  {
-    bitmap_set_bit(write_set, vers_start_field()->field_index);
-    if (vers_start_field()->store_timestamp(in_use->query_start(),
-                                          in_use->query_start_sec_part()))
-    {
+    if (vers_start_field()->set_time())
       DBUG_ASSERT(0);
-    }
-    vers_start_field()->set_has_explicit_value();
-    bitmap_set_bit(read_set, vers_start_field()->field_index);
   }
 
-  bitmap_set_bit(write_set, vers_end_field()->field_index);
-  vers_end_field()->set_max();
-  vers_end_field()->set_has_explicit_value();
-  bitmap_set_bit(read_set, vers_end_field()->field_index);
+  if (!versioned(VERS_TIMESTAMP) || !vers_end_field()->has_explicit_value())
+  {
+    vers_end_field()->set_max();
+    res= true;
+  }
 
-  file->column_bitmaps_signal();
   if (vfield)
     update_virtual_fields(file, VCOL_UPDATE_FOR_READ);
+  return res;
 }
 
 
@@ -9174,7 +9176,6 @@ void TABLE::vers_update_end()
   if (vers_end_field()->store_timestamp(in_use->query_start(),
                                         in_use->query_start_sec_part()))
     DBUG_ASSERT(0);
-  vers_end_field()->set_has_explicit_value();
 }
 
 /**

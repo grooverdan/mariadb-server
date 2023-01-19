@@ -1889,15 +1889,10 @@ public:
   */
   enum store_key_result copy(THD *thd)
   {
-    enum store_key_result result;
     enum_check_fields org_count_cuted_fields= thd->count_cuted_fields;
-    sql_mode_t org_sql_mode= thd->variables.sql_mode;
-    thd->variables.sql_mode&= ~(MODE_NO_ZERO_IN_DATE | MODE_NO_ZERO_DATE);
-    thd->variables.sql_mode|= MODE_INVALID_DATES;
-    thd->count_cuted_fields= CHECK_FIELD_IGNORE;
-    result= copy_inner();
+    Use_relaxed_field_copy urfc(to_field->table->in_use);
+    store_key_result result= copy_inner();
     thd->count_cuted_fields= org_count_cuted_fields;
-    thd->variables.sql_mode= org_sql_mode;
     return result;
   }
 
@@ -2088,7 +2083,7 @@ int join_read_key2(THD *thd, struct st_join_table *tab, TABLE *table,
                    struct st_table_ref *table_ref);
 
 bool handle_select(THD *thd, LEX *lex, select_result *result,
-                   ulong setup_tables_done_option);
+                   ulonglong setup_tables_done_option);
 bool mysql_select(THD *thd, TABLE_LIST *tables, List<Item> &list,
                   COND *conds, uint og_num, ORDER *order, ORDER *group,
                   Item *having, ORDER *proc_param, ulonglong select_type, 

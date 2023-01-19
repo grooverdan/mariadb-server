@@ -32,6 +32,19 @@ ELSE()
   SET(MYSQLD_GROUP "mysql")
   SET(ini_file_extension "cnf")
   SET(HOSTNAME "uname -n")
+
+  # Define directly here, as cmake/install_layout.cmake has no LOGDIR to be inherited
+  SET(su_user "su mysql mysql")
+  IF(RPM MATCHES "(suse|sles)")
+    SET(logdir "/var/log/mysql")
+  ELSEIF(RPM)
+    SET(logdir "/var/log/mariadb")
+  ELSE()
+    SET(logdir "/var/log/mysql")
+  ENDIF()
+  IF(DEB)
+    SET(su_user "#su mysql mysql")
+  ENDIF()
 ENDIF()
 
 # XXX: shouldn't we just have variables for all this stuff and centralise
@@ -51,7 +64,7 @@ ENDIF()
 
 IF(UNIX AND NOT WITHOUT_SERVER)
   SET(prefix ${CMAKE_INSTALL_PREFIX})
-  SET(SCRIPTS mysqld_multi.server mysql-log-rotate binary-configure mini-benchmark)
+  SET(SCRIPTS mysqld_multi.server mariadb.logrotate binary-configure mini-benchmark)
   IF(WITH_WSREP)
     SET(SCRIPTS ${SCRIPTS} wsrep_notify)
   ENDIF()
@@ -207,8 +220,9 @@ IF(UNIX AND NOT WITHOUT_SERVER)
   ENDIF()
 
   IF (INSTALL_SYSCONFDIR)
-    INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/mysql-log-rotate DESTINATION ${INSTALL_SYSCONFDIR}/logrotate.d
-            RENAME mysql COMPONENT SupportFiles)
+    INSTALL(FILES ${CMAKE_CURRENT_BINARY_DIR}/mariadb.logrotate
+            DESTINATION ${INSTALL_SYSCONFDIR}/logrotate.d
+            RENAME mariadb COMPONENT SupportFiles)
     IF(NOT HAVE_SYSTEMD)
       INSTALL(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/mysql.server
               DESTINATION  ${INSTALL_SYSCONFDIR}/init.d

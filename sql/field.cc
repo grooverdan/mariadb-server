@@ -2569,9 +2569,7 @@ Field *Field::make_new_field(MEM_ROOT *root, TABLE *new_table,
   */
   tmp->unireg_check= Field::NONE;
   tmp->flags&= (NOT_NULL_FLAG | BLOB_FLAG | UNSIGNED_FLAG |
-                ZEROFILL_FLAG | BINARY_FLAG | ENUM_FLAG | SET_FLAG |
-                VERS_ROW_START | VERS_ROW_END |
-                VERS_UPDATE_UNVERSIONED_FLAG);
+                ZEROFILL_FLAG | BINARY_FLAG | ENUM_FLAG | SET_FLAG);
   tmp->reset_fields();
   tmp->invisible= VISIBLE;
   return tmp;
@@ -11019,7 +11017,7 @@ Create_field *Create_field::clone(MEM_ROOT *mem_root) const
 }
 
 /**
-   Return true if default is an expression that must be saved explicitely
+   Return true if default is an expression that must be saved explicitly
 
    This is:
      - Not basic constants
@@ -11306,7 +11304,13 @@ bool Field::save_in_field_default_value(bool view_error_processing)
      This condition will go away as well as other conditions with vers_sys_field().
   */
   if (vers_sys_field())
+  {
+    if (flags & VERS_ROW_START)
+      set_time();
+    else
+      set_max();
     return false;
+  }
 
   if (unlikely(flags & NO_DEFAULT_VALUE_FLAG &&
                real_type() != MYSQL_TYPE_ENUM))

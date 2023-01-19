@@ -87,7 +87,6 @@ this program; if not, write to the Free Software Foundation, Inc.,
 #include "fts0plugin.h"
 #include "fts0priv.h"
 #include "fts0types.h"
-#include "ibuf0ibuf.h"
 #include "lock0lock.h"
 #include "log0crypt.h"
 #include "mtr0mtr.h"
@@ -366,6 +365,8 @@ const char* innodb_flush_method_names[] = {
 	NullS
 };
 
+static constexpr ulong innodb_flush_method_default = IF_WIN(6,4);
+
 /** Enumeration of innodb_flush_method */
 TYPELIB innodb_flush_method_typelib = {
 	array_elements(innodb_flush_method_names) - 1,
@@ -373,6 +374,9 @@ TYPELIB innodb_flush_method_typelib = {
 	innodb_flush_method_names,
 	NULL
 };
+
+/** Deprecated parameter */
+static ulong innodb_flush_method;
 
 /** Names of allowed values of innodb_deadlock_report */
 static const char *innodb_deadlock_report_names[]= {
@@ -391,25 +395,6 @@ static TYPELIB innodb_deadlock_report_typelib = {
 	array_elements(innodb_deadlock_report_names) - 1,
 	"innodb_deadlock_report_typelib",
 	innodb_deadlock_report_names,
-	NULL
-};
-
-/** Allowed values of innodb_change_buffering */
-static const char* innodb_change_buffering_names[] = {
-	"none",		/* IBUF_USE_NONE */
-	"inserts",	/* IBUF_USE_INSERT */
-	"deletes",	/* IBUF_USE_DELETE_MARK */
-	"changes",	/* IBUF_USE_INSERT_DELETE_MARK */
-	"purges",	/* IBUF_USE_DELETE */
-	"all",		/* IBUF_USE_ALL */
-	NullS
-};
-
-/** Enumeration of innodb_change_buffering */
-static TYPELIB innodb_change_buffering_typelib = {
-	array_elements(innodb_change_buffering_names) - 1,
-	"innodb_change_buffering_typelib",
-	innodb_change_buffering_names,
 	NULL
 };
 
@@ -526,9 +511,6 @@ mysql_pfs_key_t	fts_cache_mutex_key;
 mysql_pfs_key_t	fts_cache_init_mutex_key;
 mysql_pfs_key_t	fts_delete_mutex_key;
 mysql_pfs_key_t	fts_doc_id_mutex_key;
-mysql_pfs_key_t	ibuf_bitmap_mutex_key;
-mysql_pfs_key_t	ibuf_mutex_key;
-mysql_pfs_key_t	ibuf_pessimistic_insert_mutex_key;
 mysql_pfs_key_t	recalc_pool_mutex_key;
 mysql_pfs_key_t	purge_sys_pq_mutex_key;
 mysql_pfs_key_t	recv_sys_mutex_key;
@@ -560,8 +542,6 @@ static PSI_mutex_info all_innodb_mutexes[] = {
 	PSI_KEY(fts_cache_init_mutex),
 	PSI_KEY(fts_delete_mutex),
 	PSI_KEY(fts_doc_id_mutex),
-	PSI_KEY(ibuf_mutex),
-	PSI_KEY(ibuf_pessimistic_insert_mutex),
 	PSI_KEY(index_online_log),
 	PSI_KEY(page_zip_stat_per_index_mutex),
 	PSI_KEY(purge_sys_pq_mutex),
@@ -968,20 +948,6 @@ static SHOW_VAR innodb_status_variables[]= {
   {"dblwr_writes", &export_vars.innodb_dblwr_writes, SHOW_SIZE_T},
   {"deadlocks", &lock_sys.deadlocks, SHOW_SIZE_T},
   {"history_list_length", &export_vars.innodb_history_list_length,SHOW_SIZE_T},
-  {"ibuf_discarded_delete_marks", &ibuf.n_discarded_ops[IBUF_OP_DELETE_MARK],
-   SHOW_SIZE_T},
-  {"ibuf_discarded_deletes", &ibuf.n_discarded_ops[IBUF_OP_DELETE],
-   SHOW_SIZE_T},
-  {"ibuf_discarded_inserts", &ibuf.n_discarded_ops[IBUF_OP_INSERT],
-   SHOW_SIZE_T},
-  {"ibuf_free_list", &ibuf.free_list_len, SHOW_SIZE_T},
-  {"ibuf_merged_delete_marks", &ibuf.n_merged_ops[IBUF_OP_DELETE_MARK],
-   SHOW_SIZE_T},
-  {"ibuf_merged_deletes", &ibuf.n_merged_ops[IBUF_OP_DELETE], SHOW_SIZE_T},
-  {"ibuf_merged_inserts", &ibuf.n_merged_ops[IBUF_OP_INSERT], SHOW_SIZE_T},
-  {"ibuf_merges", &ibuf.n_merges, SHOW_SIZE_T},
-  {"ibuf_segment_size", &ibuf.seg_size, SHOW_SIZE_T},
-  {"ibuf_size", &ibuf.size, SHOW_SIZE_T},
   {"log_waits", &log_sys.waits, SHOW_SIZE_T},
   {"log_write_requests", &log_sys.write_to_buf, SHOW_SIZE_T},
   {"log_writes", &log_sys.write_to_log, SHOW_SIZE_T},
@@ -3922,8 +3888,6 @@ static int innodb_init_params()
 		DBUG_RETURN(HA_ERR_INITIALIZATION);
 	}
 
-	DBUG_ASSERT(innodb_change_buffering <= IBUF_USE_ALL);
-
 	/* Check that interdependent parameters have sane values. */
 	if (srv_max_buf_pool_modified_pct < srv_max_dirty_pages_pct_lwm) {
 		sql_print_warning("InnoDB: innodb_max_dirty_pages_pct_lwm"
@@ -4000,27 +3964,27 @@ static int innodb_init_params()
 
 	fts_sort_pll_degree = num_pll_degree;
 
-	/* Store the default charset-collation number of this MySQL
-	installation */
-
-	data_mysql_default_charset_coll = (ulint) default_charset_info->number;
-
-#ifndef _WIN32
-	if (srv_use_atomic_writes && my_may_have_atomic_write) {
-		/*
-                  Force O_DIRECT on Unixes (on Windows writes are always
-                  unbuffered)
-                */
-		switch (srv_file_flush_method) {
-		case SRV_O_DIRECT:
-		case SRV_O_DIRECT_NO_FSYNC:
-			break;
-		default:
-			srv_file_flush_method = SRV_O_DIRECT;
-			fprintf(stderr, "InnoDB: using O_DIRECT due to atomic writes.\n");
-		}
-	}
+	if (innodb_flush_method == 1 /* O_DSYNC */) {
+		log_sys.log_write_through = true;
+		fil_system.write_through = true;
+		fil_system.buffered = false;
+#if defined __linux__ || defined _WIN32
+		log_sys.log_buffered = false;
+		goto skip_buffering_tweak;
 #endif
+	} else if (innodb_flush_method >= 4 /* O_DIRECT */
+		   IF_WIN(&& innodb_flush_method < 8 /* normal */,)) {
+		/* O_DIRECT and similar settings do nothing */
+#ifndef _WIN32
+	} else if (srv_use_atomic_writes && my_may_have_atomic_write) {
+		/* If atomic writes are enabled, do the same as with
+		innodb_flush_method=O_DIRECT: retain the default settings */
+#endif
+	} else {
+		log_sys.log_write_through = false;
+		fil_system.write_through = false;
+		fil_system.buffered = true;
+	}
 
 #if defined __linux__ || defined _WIN32
 	if (srv_flush_log_at_trx_commit == 2) {
@@ -4028,6 +3992,7 @@ static int innodb_init_params()
 		innodb_flush_log_at_trx_commit=2. */
 		log_sys.log_buffered = true;
 	}
+skip_buffering_tweak:
 #endif
 
 	if (srv_read_only_mode) {
@@ -4035,12 +4000,6 @@ static int innodb_init_params()
 		srv_use_doublewrite_buf = FALSE;
 	}
 
-#if !defined LINUX_NATIVE_AIO && !defined HAVE_URING && !defined _WIN32
-	/* Currently native AIO is supported only on windows and linux
-	and that also when the support is compiled in. In all other
-	cases, we ignore the setting of innodb_use_native_aio. */
-	srv_use_native_aio = FALSE;
-#endif
 #ifdef HAVE_URING
 	if (srv_use_native_aio && io_uring_may_be_unsafe) {
 		sql_print_warning("innodb_use_native_aio may cause "
@@ -4048,22 +4007,13 @@ static int innodb_init_params()
 				  "https://jira.mariadb.org/browse/MDEV-26674",
 				  io_uring_may_be_unsafe);
 	}
+#elif !defined LINUX_NATIVE_AIO && !defined _WIN32
+	/* Currently native AIO is supported only on windows and linux
+	and that also when the support is compiled in. In all other
+	cases, we ignore the setting of innodb_use_native_aio. */
+	srv_use_native_aio = FALSE;
 #endif
 
-#ifndef _WIN32
-	ut_ad(srv_file_flush_method <= SRV_O_DIRECT_NO_FSYNC);
-#else
-	switch (srv_file_flush_method) {
-	case SRV_ALL_O_DIRECT_FSYNC + 1 /* "async_unbuffered"="unbuffered" */:
-		srv_file_flush_method = SRV_ALL_O_DIRECT_FSYNC;
-		break;
-	case SRV_ALL_O_DIRECT_FSYNC + 2 /* "normal"="fsync" */:
-		srv_file_flush_method = SRV_FSYNC;
-		break;
-	default:
-		ut_ad(srv_file_flush_method <= SRV_ALL_O_DIRECT_FSYNC);
-	}
-#endif
 	innodb_buffer_pool_size_init();
 
 	srv_lock_table_size = 5 * (srv_buf_pool_size >> srv_page_size_shift);
@@ -4217,8 +4167,6 @@ static int innodb_init(void* p)
 	innobase_old_blocks_pct = buf_LRU_old_ratio_update(
 		innobase_old_blocks_pct, true);
 
-	ibuf_max_size_update(srv_change_buffer_max_size);
-
 	mysql_mutex_init(pending_checkpoint_mutex_key,
 			 &log_requests.mutex,
 			 MY_MUTEX_INIT_FAST);
@@ -4349,7 +4297,7 @@ innobase_start_trx_and_assign_read_view(
 	Do this only if transaction is using REPEATABLE READ isolation
 	level. */
 	trx->isolation_level = innobase_map_isolation_level(
-		thd_get_trx_isolation(thd));
+		thd_get_trx_isolation(thd)) & 3;
 
 	if (trx->isolation_level == TRX_ISO_REPEATABLE_READ) {
 		trx->read_view.open(trx);
@@ -6597,8 +6545,7 @@ uint8_t
 get_innobase_type_from_mysql_type(unsigned *unsigned_flag, const Field *field)
 {
 	/* The following asserts try to check that the MySQL type code fits in
-	8 bits: this is used in ibuf and also when DATA_NOT_NULL is ORed to
-	the type */
+	8 bits: this is used when DATA_NOT_NULL is ORed to the type */
 
 	static_assert(MYSQL_TYPE_STRING < 256, "compatibility");
 	static_assert(MYSQL_TYPE_VAR_STRING < 256, "compatibility");
@@ -8562,10 +8509,12 @@ ha_innobase::update_row(
 		const bool vers_ins_row = vers_set_fields
 			&& thd_sql_command(m_user_thd) != SQLCOM_ALTER_TABLE;
 
+                TABLE_LIST *tl= table->pos_in_table_list;
+                uint8 op_map= tl->trg_event_map | tl->slave_fk_event_map;
 		/* This is not a delete */
 		m_prebuilt->upd_node->is_delete =
 			(vers_set_fields && !vers_ins_row) ||
-			(thd_sql_command(m_user_thd) == SQLCOM_DELETE &&
+			(op_map & trg2bit(TRG_EVENT_DELETE) &&
 				table->versioned(VERS_TIMESTAMP))
 			? VERSIONED_DELETE
 			: NO_DELETE;
@@ -15268,7 +15217,7 @@ ha_innobase::check(
 	}
 
 	/* Restore the original isolation level */
-	m_prebuilt->trx->isolation_level = old_isolation_level;
+	m_prebuilt->trx->isolation_level = old_isolation_level & 3;
 #ifdef BTR_CUR_HASH_ADAPT
 # if defined UNIV_AHI_DEBUG || defined UNIV_DEBUG
 	/* We validate the whole adaptive hash index for all tables
@@ -16301,7 +16250,7 @@ ha_innobase::store_lock(
 	if (lock_type != TL_IGNORE
 	    && trx->n_mysql_tables_in_use == 0) {
 		trx->isolation_level = innobase_map_isolation_level(
-			(enum_tx_isolation) thd_tx_isolation(thd));
+			(enum_tx_isolation) thd_tx_isolation(thd)) & 3;
 
 		if (trx->isolation_level <= TRX_ISO_READ_COMMITTED) {
 
@@ -17442,20 +17391,6 @@ innodb_old_blocks_pct_update(THD*, st_mysql_sys_var*, void*, const void* save)
 	innobase_old_blocks_pct = ratio;
 }
 
-/****************************************************************//**
-Update the system variable innodb_old_blocks_pct using the "saved"
-value. This function is registered as a callback with MySQL. */
-static
-void
-innodb_change_buffer_max_size_update(THD*, st_mysql_sys_var*, void*,
-				     const void* save)
-{
-	srv_change_buffer_max_size = *static_cast<const uint*>(save);
-	mysql_mutex_unlock(&LOCK_global_system_variables);
-	ibuf_max_size_update(srv_change_buffer_max_size);
-	mysql_mutex_lock(&LOCK_global_system_variables);
-}
-
 #ifdef UNIV_DEBUG
 static uint srv_fil_make_page_dirty_debug = 0;
 static uint srv_saved_page_number_debug;
@@ -18409,7 +18344,7 @@ buffer_pool_load_abort(
 }
 
 #if defined __linux__ || defined _WIN32
-static void innodb_log_file_buffering_update(THD *thd, st_mysql_sys_var*,
+static void innodb_log_file_buffering_update(THD *, st_mysql_sys_var*,
                                              void *, const void *save)
 {
   mysql_mutex_unlock(&LOCK_global_system_variables);
@@ -18417,6 +18352,30 @@ static void innodb_log_file_buffering_update(THD *thd, st_mysql_sys_var*,
   mysql_mutex_lock(&LOCK_global_system_variables);
 }
 #endif
+
+static void innodb_log_file_write_through_update(THD *, st_mysql_sys_var*,
+                                                 void *, const void *save)
+{
+  mysql_mutex_unlock(&LOCK_global_system_variables);
+  log_sys.set_write_through(*static_cast<const my_bool*>(save));
+  mysql_mutex_lock(&LOCK_global_system_variables);
+}
+
+static void innodb_data_file_buffering_update(THD *, st_mysql_sys_var*,
+                                              void *, const void *save)
+{
+  mysql_mutex_unlock(&LOCK_global_system_variables);
+  fil_system.set_buffered(*static_cast<const my_bool*>(save));
+  mysql_mutex_lock(&LOCK_global_system_variables);
+}
+
+static void innodb_data_file_write_through_update(THD *, st_mysql_sys_var*,
+                                                  void *, const void *save)
+{
+  mysql_mutex_unlock(&LOCK_global_system_variables);
+  fil_system.set_write_through(*static_cast<const my_bool*>(save));
+  mysql_mutex_lock(&LOCK_global_system_variables);
+}
 
 static void innodb_log_file_size_update(THD *thd, st_mysql_sys_var*,
                                         void *var, const void *save)
@@ -18846,7 +18805,7 @@ static MYSQL_SYSVAR_UINT(fast_shutdown, srv_fast_shutdown,
   fast_shutdown_validate, NULL, 1, 0, 3, 0);
 
 static MYSQL_SYSVAR_BOOL(file_per_table, srv_file_per_table,
-  PLUGIN_VAR_NOCMDARG,
+  PLUGIN_VAR_NOCMDARG | PLUGIN_VAR_DEPRECATED,
   "Stores each InnoDB table to an .ibd file in the database dir.",
   NULL, NULL, TRUE);
 
@@ -18876,11 +18835,10 @@ static MYSQL_SYSVAR_ULONG(flush_log_at_trx_commit, srv_flush_log_at_trx_commit,
   " guarantees in case of crash. 0 and 2 can be faster than 1 or 3.",
   NULL, NULL, 1, 0, 3, 0);
 
-static MYSQL_SYSVAR_ENUM(flush_method, srv_file_flush_method,
-  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+static MYSQL_SYSVAR_ENUM(flush_method, innodb_flush_method,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY | PLUGIN_VAR_DEPRECATED,
   "With which method to flush data.",
-  NULL, NULL, IF_WIN(SRV_ALL_O_DIRECT_FSYNC, SRV_O_DIRECT),
-  &innodb_flush_method_typelib);
+  NULL, NULL, innodb_flush_method_default, &innodb_flush_method_typelib);
 
 static MYSQL_SYSVAR_STR(log_group_home_dir, srv_log_group_home_dir,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
@@ -19250,15 +19208,44 @@ static MYSQL_SYSVAR_BOOL(optimize_fulltext_only, innodb_optimize_fulltext_only,
   "Only optimize the Fulltext index of the table",
   NULL, NULL, FALSE);
 
+extern int os_aio_resize(ulint n_reader_threads, ulint n_writer_threads);
+static void innodb_update_io_thread_count(THD *thd,ulint n_read, ulint n_write)
+{
+  int res = os_aio_resize(n_read, n_write);
+  if (res)
+  {
+#ifndef __linux__
+    ut_ad(0);
+#else
+    ut_a(srv_use_native_aio);
+    push_warning_printf(thd, Sql_condition::WARN_LEVEL_WARN,
+      ER_UNKNOWN_ERROR,
+      "Could not reserve max. number of concurrent ios."
+      "Increase the /proc/sys/fs/aio-max-nr to fix.");
+#endif
+  }
+}
+
+static void innodb_read_io_threads_update(THD* thd, struct st_mysql_sys_var*, void*, const void* save)
+{
+  srv_n_read_io_threads = *static_cast<const uint*>(save);
+  innodb_update_io_thread_count(thd, srv_n_read_io_threads, srv_n_write_io_threads);
+}
+static void innodb_write_io_threads_update(THD* thd, struct st_mysql_sys_var*, void*, const void* save)
+{
+  srv_n_write_io_threads = *static_cast<const uint*>(save);
+  innodb_update_io_thread_count(thd, srv_n_read_io_threads, srv_n_write_io_threads);
+}
+
 static MYSQL_SYSVAR_UINT(read_io_threads, srv_n_read_io_threads,
-  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+  PLUGIN_VAR_RQCMDARG,
   "Number of background read I/O threads in InnoDB.",
-  NULL, NULL, 4, 1, 64, 0);
+  NULL, innodb_read_io_threads_update , 4, 1, 64, 0);
 
 static MYSQL_SYSVAR_UINT(write_io_threads, srv_n_write_io_threads,
-  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+  PLUGIN_VAR_RQCMDARG,
   "Number of background write I/O threads in InnoDB.",
-  NULL, NULL, 4, 2, 64, 0);
+  NULL, innodb_write_io_threads_update, 4, 2, 64, 0);
 
 static MYSQL_SYSVAR_ULONG(force_recovery, srv_force_recovery,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
@@ -19282,6 +19269,21 @@ static MYSQL_SYSVAR_BOOL(log_file_buffering, log_sys.log_buffered,
   "Whether the file system cache for ib_logfile0 is enabled",
   nullptr, innodb_log_file_buffering_update, FALSE);
 #endif
+
+static MYSQL_SYSVAR_BOOL(log_file_write_through, log_sys.log_write_through,
+  PLUGIN_VAR_OPCMDARG,
+  "Whether each write to ib_logfile0 is write through",
+  nullptr, innodb_log_file_write_through_update, FALSE);
+
+static MYSQL_SYSVAR_BOOL(data_file_buffering, fil_system.buffered,
+  PLUGIN_VAR_OPCMDARG,
+  "Whether the file system cache for data files is enabled",
+  nullptr, innodb_data_file_buffering_update, FALSE);
+
+static MYSQL_SYSVAR_BOOL(data_file_write_through, fil_system.write_through,
+  PLUGIN_VAR_OPCMDARG,
+  "Whether each write to data files writes through",
+  nullptr, innodb_data_file_write_through_update, FALSE);
 
 static MYSQL_SYSVAR_ULONGLONG(log_file_size, srv_log_file_size,
   PLUGIN_VAR_RQCMDARG,
@@ -19343,7 +19345,7 @@ static MYSQL_SYSVAR_UINT(undo_tablespaces, srv_undo_tablespaces,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
   "Number of undo tablespaces to use.",
   NULL, NULL,
-  0L,			/* Default seting */
+  3L,			/* Default seting */
   0L,			/* Minimum value */
   TRX_SYS_MAX_UNDO_SPACES, 0); /* Maximum value */
 
@@ -19416,37 +19418,12 @@ static MYSQL_SYSVAR_BOOL(numa_interleave, srv_numa_interleave,
   NULL, NULL, FALSE);
 #endif /* HAVE_LIBNUMA */
 
-static MYSQL_SYSVAR_ENUM(change_buffering, innodb_change_buffering,
-  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_DEPRECATED,
-  "Buffer changes to secondary indexes.",
-  nullptr, nullptr, IBUF_USE_NONE, &innodb_change_buffering_typelib);
-
-static MYSQL_SYSVAR_UINT(change_buffer_max_size,
-  srv_change_buffer_max_size,
-  PLUGIN_VAR_RQCMDARG,
-  "Maximum on-disk size of change buffer in terms of percentage"
-  " of the buffer pool.",
-  NULL, innodb_change_buffer_max_size_update,
-  CHANGE_BUFFER_DEFAULT_SIZE, 0, 50, 0);
-
 static MYSQL_SYSVAR_ENUM(stats_method, srv_innodb_stats_method,
    PLUGIN_VAR_RQCMDARG,
   "Specifies how InnoDB index statistics collection code should"
   " treat NULLs. Possible values are NULLS_EQUAL (default),"
   " NULLS_UNEQUAL and NULLS_IGNORED",
    NULL, NULL, SRV_STATS_NULLS_EQUAL, &innodb_stats_method_typelib);
-
-#if defined UNIV_DEBUG || defined UNIV_IBUF_DEBUG
-static MYSQL_SYSVAR_BOOL(change_buffer_dump, ibuf_dump,
-  PLUGIN_VAR_NOCMDARG | PLUGIN_VAR_READONLY,
-  "Dump the change buffer at startup.",
-  NULL, NULL, FALSE);
-
-static MYSQL_SYSVAR_UINT(change_buffering_debug, ibuf_debug,
-  PLUGIN_VAR_RQCMDARG,
-  "Debug flags for InnoDB change buffering (0=none, 1=try to buffer)",
-  NULL, NULL, 0, 0, 1, 0);
-#endif /* UNIV_DEBUG || UNIV_IBUF_DEBUG */
 
 static MYSQL_SYSVAR_ULONG(buf_dump_status_frequency, srv_buf_dump_status_frequency,
   PLUGIN_VAR_RQCMDARG,
@@ -19727,6 +19704,9 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
 #if defined __linux__ || defined _WIN32
   MYSQL_SYSVAR(log_file_buffering),
 #endif
+  MYSQL_SYSVAR(log_file_write_through),
+  MYSQL_SYSVAR(data_file_buffering),
+  MYSQL_SYSVAR(data_file_write_through),
   MYSQL_SYSVAR(log_file_size),
   MYSQL_SYSVAR(log_group_home_dir),
   MYSQL_SYSVAR(max_dirty_pages_pct),
@@ -19774,12 +19754,6 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
 #ifdef HAVE_LIBNUMA
   MYSQL_SYSVAR(numa_interleave),
 #endif /* HAVE_LIBNUMA */
-  MYSQL_SYSVAR(change_buffering),
-  MYSQL_SYSVAR(change_buffer_max_size),
-#if defined UNIV_DEBUG || defined UNIV_IBUF_DEBUG
-  MYSQL_SYSVAR(change_buffer_dump),
-  MYSQL_SYSVAR(change_buffering_debug),
-#endif /* UNIV_DEBUG || UNIV_IBUF_DEBUG */
   MYSQL_SYSVAR(random_read_ahead),
   MYSQL_SYSVAR(read_ahead_threshold),
   MYSQL_SYSVAR(read_only),

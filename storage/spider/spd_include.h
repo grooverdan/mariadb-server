@@ -85,9 +85,7 @@
 
 #define SPIDER_TEST(A) MY_TEST(A)
 
-#define SPIDER_FIELD_FIELDPTR_REQUIRES_THDPTR
 #define SPIDER_ENGINE_CONDITION_PUSHDOWN_IS_ALWAYS_ON
-#define SPIDER_XID_USES_xid_cache_iterate
 
 #define SPIDER_Item_args_arg_count_IS_PROTECTED
 
@@ -329,7 +327,6 @@ typedef struct st_spider_conn_loop_check SPIDER_CONN_LOOP_CHECK;
 /* database connection */
 typedef struct st_spider_conn
 {
-  uint               conn_kind;
   char               *conn_key;
   uint               conn_key_length;
   my_hash_value_type conn_key_hash_value;
