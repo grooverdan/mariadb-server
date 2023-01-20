@@ -7,7 +7,7 @@ on:
         - VERSION
 jobs:
   version_check:
-     if: github.actor != 'grooverdan'
+     if: github.actor != 'dbart'
      runs-on: ubuntu-latest
      steps:
         - run: false
