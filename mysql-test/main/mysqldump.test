@@ -2981,3 +2981,26 @@ DROP DATABASE test1;
 --remove_file $MYSQLTEST_VARDIR/tmp/dumptest1.sql
 
 --echo # End of 10.3 tests
+
+--echo # Start of 10.5 tests
+
+--echo #
+--echo # MDEV-31092 mysqldump --force doesn't ignore error as it should
+--echo #
+
+use test;
+create function test_fun() returns int return 1;
+update mysql.proc set body='return no_such_var' where db='test' and name='test_fun';
+create event test_event on schedule every 1 year STARTS CURRENT_TIMESTAMP + INTERVAL 1 year do select 1;
+update mysql.event set body ='select not_a_value' where db='test' and name='test_event';
+create table t1 (i int);
+create trigger test_block BEFORE INSERT ON t1 FOR EACH ROW UPDATE t1 SET NEW.i = NEW.i + 1;
+
+--error 2
+--exec $MYSQL_DUMP --events --routines --no-data --skip-comments --force test 2>&1
+
+drop function test_fun;
+drop event test_event;
+drop table t1;
+
+--echo # End of 10.5 tests

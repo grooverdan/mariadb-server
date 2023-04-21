@@ -2544,7 +2544,12 @@ static uint dump_events_for_db(char *db)
           event_name);
 
       if (mysql_query_with_error_report(mysql, &event_res, query_buff))
-        DBUG_RETURN(1);
+      {
+        verbose_msg("-- Warning: Couldn't get event information for " \
+                    "event %s (%s)\n", event_name, mysql_error(mysql));
+        fprintf(sql_file, "\n-- failed on event: %s\n\n", event_name);
+        continue;
+      }
 
       while ((row= mysql_fetch_row(event_res)) != NULL)
       {
@@ -2711,7 +2716,7 @@ static uint dump_routines_for_db(char *db)
                                      "Create Package Body"};
   char       db_name_buff[NAME_LEN*2+3], name_buff[NAME_LEN*2+3];
   char       *routine_name;
-  uint       i;
+  uint       ie
   FILE       *sql_file= md_result_file;
   MYSQL_ROW  row, routine_list_row;
 
@@ -2771,9 +2776,12 @@ static uint dump_routines_for_db(char *db)
 
         if (mysql_query_with_error_report(mysql, &routine_res, query_buff))
         {
-          mysql_free_result(routine_list_res);
-          routine_list_res= 0;
-          DBUG_RETURN(1);
+          verbose_msg("-- Warning: Couldn't get %s information for " \
+                     "db %s, %s: %s (%s)\n", db, routine_type[i],
+                      routine_name, mysql_error(mysql));
+          fprintf(sql_file, "\n-- failed on db: %s, routine: %s\n\n", db,
+                  routine_name);
+          continue;
         }
 
         while ((row= mysql_fetch_row(routine_res)))
@@ -3798,7 +3806,14 @@ static int dump_triggers_for_table(char *table_name, char *db_name)
 
       if (mysql_query_with_error_report(mysql, &show_create_trigger_rs,
                                         query_buff))
-        goto done;
+      {
+        verbose_msg("-- Warning: Couldn't get trigger information for " \
+                    "table %s, trigger %s (%s)\n", table_name, name_buff,
+                    mysql_error(mysql));
+        fprintf(sql_file, "\n-- failed on table %s: trigger: %s\n\n",
+                table_name, name_buff);
+        continue;
+      }
       else
       {
         int error= (!show_create_trigger_rs ||
