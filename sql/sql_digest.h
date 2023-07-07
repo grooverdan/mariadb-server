@@ -22,6 +22,8 @@ class String;
 
 #define MAX_DIGEST_STORAGE_SIZE (1024*1024)
 
+#define DIGEST_HASH_SIZE 32
+
 /**
   Structure to store token count/array for a statement
   on which digest is to be calculated.
@@ -103,11 +105,18 @@ struct sql_digest_storage
 typedef struct sql_digest_storage sql_digest_storage;
 
 /**
-  Compute a digest hash.
+  Compute a md5 digest hash.
   @param digest_storage The digest
   @param [out] md5 The computed digest hash. This parameter is a buffer of size @c MD5_HASH_SIZE.
 */
 void compute_digest_md5(const sql_digest_storage *digest_storage, unsigned char *md5);
+
+/**
+  Compute a digest hash.
+  @param digest_storage The digest
+  @param [out] sha2-256 The computed digest hash. This parameter is a buffer of size @c HASH_SIZE.
+*/
+void compute_digest_hash(const sql_digest_storage *digest_storage, unsigned char *hash);
 
 /**
   Compute a digest text.

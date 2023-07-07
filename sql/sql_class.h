@@ -1266,6 +1266,13 @@ class Query_arena_stmt
 
 public:
   Query_arena_stmt(THD *_thd);
+  Query_arena_stmt(THD *_thd, MEM_ROOT *_mem_root,
+                   enum Query_arena::enum_state _q_state)
+    : Query_arena_stmt(_thd)
+  {
+    backup.mem_root= _mem_root;
+    backup.state= _q_state;
+  };
   ~Query_arena_stmt();
   bool arena_replaced()
   {
