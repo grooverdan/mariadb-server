@@ -5826,6 +5826,163 @@ bool Item_func_natural_sort_key::check_vcol_func_processor(void *arg)
                                    VCOL_NON_DETERMINISTIC);
 }
 
+#include "sql_parse.h"
+#include "table.h"
+
+class Statement_digest_ctx : public Default_object_creation_ctx {
+private:
+  MEM_ROOT m_mem_root;
+  Query_arena_stmt m_arena_stmt;
+  LEX *m_backed_up_lex;
+  LEX m_lex;
+  sql_digest_state *m_saved_digest;
+  //PSI_statement_locker *m_saved_statement_psi;
+  Suppress_warnings_error_handler m_warning_handler;
+public:
+  sql_digest_state digest;
+
+  Statement_digest_ctx(THD *thd) : Default_object_creation_ctx(thd),
+    m_arena_stmt(thd, &m_mem_root, Query_arena::STMT_CONVENTIONAL_EXECUTION),
+    m_backed_up_lex(thd->lex),
+    m_saved_digest(thd->m_digest)
+    //m_saved_statement_psi(thd->m_statement_psi)
+  {
+    init_alloc_root(PSI_NOT_INSTRUMENTED, &m_mem_root, 1024, 0, MYF(0));
+    thd->m_digest= &digest;
+    thd->lex = &m_lex;
+    thd->push_internal_handler(&m_warning_handler);
+    lex_start(thd);
+  }
+
+  void change_env(THD *thd) const override
+  {
+    Default_object_creation_ctx::change_env(thd);
+    thd->m_digest= m_saved_digest;
+    thd->lex = m_backed_up_lex;
+    thd->pop_internal_handler();
+  }
+};
+
+String *Item_func_statement_digest::val_str_ascii(String *out)
+{
+  DBUG_ASSERT(fixed());
+  String *in= args[0]->val_str();
+  if (args[0]->null_value || !in)
+  {
+    null_value= true;
+    return nullptr;
+  }
+
+  const CHARSET_INFO *cs= in->charset();
+  THD *thd= current_thd;
+  if (!is_supported_parser_charset(cs))
+  {
+    push_warning_printf(thd,Sql_condition::WARN_LEVEL_WARN,
+                        ER_FUNCTION_DOES_NOT_SUPPORT_CHARACTER_SET,
+                        ER_THD(thd, ER_FUNCTION_DOES_NOT_SUPPORT_CHARACTER_SET),
+                        "statement_digest");
+    goto err;
+  }
+
+  if (!out->alloc(DIGEST_HASH_SIZE * 2))
+  {
+    Parser_state parser_state;
+    uchar digest[DIGEST_HASH_SIZE];
+    Statement_digest_ctx ctx(thd);
+
+    if (parser_state.init(thd, (char *) in->ptr(), in->length()))
+    {
+      push_warning_printf(thd,Sql_condition::WARN_LEVEL_WARN, ER_PARSE_ERROR, func_name(), in->ptr());
+      goto err;
+    }
+
+    if (parse_sql(thd, &parser_state, &ctx, true))
+    {
+      push_warning_printf(thd,Sql_condition::WARN_LEVEL_WARN, ER_PARSE_ERROR, func_name(), in->ptr());
+      goto err;
+    }
+
+    compute_digest_hash(&ctx.digest.m_digest_storage, digest);
+
+    array_to_hex((char *) out->ptr(), digest, DIGEST_HASH_SIZE);
+    out->set_charset(&my_charset_numeric);
+    out->length((uint) DIGEST_HASH_SIZE * 2);
+    null_value= 0;
+
+    return out;
+  }
+err:
+  null_value= true;
+  return nullptr;
+}
+
+String *Item_func_statement_digest_text::val_str(String *out)
+{
+  String *in= args[0]->val_str();
+  if (args[0]->null_value || !in)
+  {
+    null_value= true;
+    return nullptr;
+  }
+
+  const CHARSET_INFO *cs = in->charset();
+  THD *thd= current_thd;
+  ulong max_allowed_packet= thd->variables.max_allowed_packet;
+
+  if (!is_supported_parser_charset(cs))
+  {
+    push_warning_printf(thd,Sql_condition::WARN_LEVEL_WARN,
+                        ER_FUNCTION_DOES_NOT_SUPPORT_CHARACTER_SET,
+                        ER_THD(thd, ER_FUNCTION_DOES_NOT_SUPPORT_CHARACTER_SET),
+                        "statement_digest_text");
+    goto err;
+  }
+
+  if (max_digest_length * cs->mbmaxlen > current_thd->variables.max_allowed_packet)
+  {
+    push_warning_printf(thd,Sql_condition::WARN_LEVEL_WARN,
+			ER_TOO_BIG_FOR_UNCOMPRESS,
+			ER_THD(thd, ER_TOO_BIG_FOR_UNCOMPRESS),
+                        static_cast<int>(max_allowed_packet));
+  }
+  else
+  {
+    Parser_state parser_state;
+    Statement_digest_ctx ctx(thd);
+
+    if (parser_state.init(thd, (char *) in->ptr(), in->length()))
+    {
+      push_warning_printf(thd,Sql_condition::WARN_LEVEL_WARN, ER_PARSE_ERROR, func_name(), in->ptr());
+      goto err;
+    }
+
+    if (parse_sql(thd, &parser_state, &ctx, true))
+    {
+      push_warning_printf(thd,Sql_condition::WARN_LEVEL_WARN, ER_PARSE_ERROR, func_name(), in->ptr());
+      goto err;
+    }
+
+    compute_digest_text(&ctx.digest.m_digest_storage, out);
+    return out;
+  }
+err:
+  null_value= true;
+  return nullptr;
+}
+
+bool Item_func_statement_digest_text::fix_length_and_dec(THD *thd)
+{
+  if (agg_arg_charsets_for_string_result(collation, args, 1))
+    return true;
+  DBUG_ASSERT(collation.collation != NULL);
+  fix_char_length(max_digest_length);
+
+  set_maybe_null(args[0]->maybe_null() ||
+                 max_digest_length * collation.collation->mbmaxlen >
+                     current_thd->variables.max_allowed_packet);
+  return false;
+}
+
 String *Item_func_format_pico_time::val_str_ascii(String *)
 {
   double time_val= args[0]->val_real();

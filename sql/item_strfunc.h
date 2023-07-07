@@ -291,6 +291,58 @@ public:
   bool check_vcol_func_processor(void *arg) override;
 };
 
+#include "sql_digest.h"
+
+class Item_func_statement_digest :public Item_str_ascii_checksum_func
+{
+public:
+  Item_func_statement_digest(THD *thd, Item *a)
+      : Item_str_ascii_checksum_func(thd, a) {};
+  String *val_str_ascii(String *) override;
+  bool fix_length_and_dec(THD *thd) override
+  {
+    fix_length_and_charset(DIGEST_HASH_SIZE * 2, default_charset());
+    return FALSE;
+  }
+  LEX_CSTRING func_name_cstring() const override
+  {
+    static LEX_CSTRING name= {STRING_WITH_LEN("statement_digest")};
+    return name;
+  }
+  Item *get_copy(THD *thd) override
+  {
+    return get_item_copy<Item_func_statement_digest>(thd, this);
+  }
+  bool check_vcol_func_processor(void *arg) override
+  {
+    /* dependent on system variable max_digest_length(?) */
+    return mark_unsupported_function(func_name(), "()", arg, VCOL_SESSION_FUNC);
+  }
+};
+
+class Item_func_statement_digest_text : public Item_str_func
+{
+public:
+  Item_func_statement_digest_text(THD *thd, Item *a)
+      : Item_str_func(thd, a){};
+  String *val_str(String *) override;
+  LEX_CSTRING func_name_cstring() const override
+  {
+    static LEX_CSTRING name= {STRING_WITH_LEN("statement_digest_text")};
+    return name;
+  }
+  bool fix_length_and_dec(THD *thd) override;
+  Item *get_copy(THD *thd) override
+  {
+    return get_item_copy<Item_func_statement_digest_text>(thd, this);
+  }
+  bool check_vcol_func_processor(void *arg) override
+  {
+    /* dependent on system variable max_digest_length */
+    return mark_unsupported_function(func_name(), "()", arg, VCOL_SESSION_FUNC);
+  }
+};
+
 class Item_func_concat :public Item_str_func
 {
 protected:

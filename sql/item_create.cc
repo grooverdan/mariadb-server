@@ -2160,6 +2160,32 @@ protected:
 };
 
 
+class Create_func_statement_digest : public Create_func_arg1
+{
+public:
+  virtual Item *create_1_arg(THD *thd, Item *arg1);
+
+  static Create_func_statement_digest s_singleton;
+
+protected:
+  Create_func_statement_digest() = default;
+  virtual ~Create_func_statement_digest() = default;
+};
+
+
+class Create_func_statement_digest_text : public Create_func_arg1
+{
+public:
+  virtual Item *create_1_arg(THD *thd, Item *arg1);
+
+  static Create_func_statement_digest_text s_singleton;
+
+protected:
+  Create_func_statement_digest_text() = default;
+  virtual ~Create_func_statement_digest_text() = default;
+};
+
+
 class Create_func_str_to_date : public Create_func_arg2
 {
 public:
@@ -5314,6 +5340,21 @@ Create_func_sqrt::create_1_arg(THD *thd, Item *arg1)
   return new (thd->mem_root) Item_func_sqrt(thd, arg1);
 }
 
+Create_func_statement_digest Create_func_statement_digest::s_singleton;
+
+Item*
+Create_func_statement_digest::create_1_arg(THD *thd, Item *arg1)
+{
+  return new (thd->mem_root) Item_func_statement_digest(thd, arg1);
+}
+
+Create_func_statement_digest_text Create_func_statement_digest_text::s_singleton;
+
+Item*
+Create_func_statement_digest_text::create_1_arg(THD *thd, Item *arg1)
+{
+  return new (thd->mem_root) Item_func_statement_digest_text(thd, arg1);
+}
 
 Create_func_str_to_date Create_func_str_to_date::s_singleton;
 
@@ -5902,6 +5943,9 @@ Native_func_registry func_array[] =
   { { STRING_WITH_LEN("SPACE") }, BUILDER(Create_func_space)},
   { { STRING_WITH_LEN("SQRT") }, BUILDER(Create_func_sqrt)},
   { { STRING_WITH_LEN("STRCMP") }, BUILDER(Create_func_strcmp)},
+  { { STRING_WITH_LEN("STATEMENT_DIGEST_TEXT") },
+      BUILDER(Create_func_statement_digest_text)},
+  { { STRING_WITH_LEN("STATEMENT_DIGEST") }, BUILDER(Create_func_statement_digest)},
   { { STRING_WITH_LEN("STR_TO_DATE") }, BUILDER(Create_func_str_to_date)},
   { { STRING_WITH_LEN("SUBSTR_ORACLE") },
       BUILDER(Create_func_substr_oracle)},

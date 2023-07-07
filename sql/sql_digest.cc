@@ -20,6 +20,7 @@
 
 #include "mariadb.h"
 #include "my_md5.h"
+#include "mysql/service_sha2.h"
 #include "unireg.h"
 
 #include "sql_string.h"
@@ -162,6 +163,11 @@ void compute_digest_md5(const sql_digest_storage *digest_storage, unsigned char 
   compute_md5_hash(md5,
                    (const char *) digest_storage->m_token_array,
                    digest_storage->m_byte_count);
+}
+
+void compute_digest_hash(const sql_digest_storage *digest_storage, unsigned char *hash)
+{
+  my_sha256(hash, (const char *const) digest_storage->m_token_array, digest_storage->m_byte_count);
 }
 
 /*

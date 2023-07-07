@@ -10113,7 +10113,7 @@ bool parse_sql(THD *thd, Parser_state *parser_state,
     /* Start Digest */
     parser_state->m_digest_psi= MYSQL_DIGEST_START(thd->m_statement_psi);
 
-    if (parser_state->m_digest_psi != NULL)
+    if (!opt_bootstrap)
     {
       /*
         If either:
