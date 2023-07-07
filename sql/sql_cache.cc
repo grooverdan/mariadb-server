@@ -1708,7 +1708,7 @@ size_t build_normalized_name(char *buff, size_t bufflen,
 */
 
 int
-Query_cache::send_result_to_client(THD *thd, char *org_sql, uint query_length)
+Query_cache::send_result_to_client(THD *thd, const char *org_sql, uint query_length)
 {
   ulonglong engine_data;
   Query_cache_query *query;

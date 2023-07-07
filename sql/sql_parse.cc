@@ -7693,7 +7693,7 @@ static bool wsrep_mysql_parse(THD *thd, char *rawbuf, uint length,
   @param       length  Length of the query text
 */
 
-void mysql_parse(THD *thd, char *rawbuf, uint length,
+void mysql_parse(THD *thd, const char *rawbuf, uint length,
                  Parser_state *parser_state)
 {
   DBUG_ENTER("mysql_parse");

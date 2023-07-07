@@ -473,7 +473,7 @@ protected:
     Check if the query is in the cache and if this is true send the
     data to client.
   */
-  int send_result_to_client(THD *thd, char *query, uint query_length);
+  int send_result_to_client(THD *thd, const char *query, uint query_length);
 
   /* Remove all queries that uses any of the listed following tables */
   void invalidate(THD *thd, TABLE_LIST *tables_used,
