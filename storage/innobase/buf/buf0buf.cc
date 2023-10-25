@@ -742,6 +742,127 @@ bool buf_page_is_corrupted(bool check_lsn, const byte *read_buf,
 
 #ifndef UNIV_INNOCHECKSUM
 
+/** Memory Pressure */
+
+#ifdef __linux__
+static void garbage_collect(void *)
+{
+  size_t pages;
+  mysql_mutex_lock(&buf_pool.mutex);
+  pages= buf_pool.garbage_collect();
+  mysql_mutex_unlock(&buf_pool.mutex);
+  ib::warn() << "Memory pressure event freed " << pages << " pages";
+}
+
+/*
+  based off https://www.kernel.org/doc/html/latest/accounting/psi.html#pressure-interface
+  and https://www.kernel.org/doc/html/latest/admin-guide/cgroup-v2.html#memory
+*/
+#include <poll.h>
+#include <fstream>
+
+class mem_pressure :public tpool::task
+{
+  struct pollfd m_fds[2];
+  nfds_t m_num_fds;
+  int m_pipe[2];
+
+public:
+  mem_pressure(tpool::callback_func func, void* arg, tpool::task_group* group) :
+      task(func, arg, group), m_num_fds(0)
+  {}
+
+  void add_ref() override
+  {
+    std::string memcgroup{"/sys/fs/cgroup"};
+    std::string cgroup;
+    std::ifstream selfcgroup("/proc/self/cgroup");
+    std::getline(selfcgroup, cgroup, '\n');
+
+    cgroup.erase(0, 3); // Remove "0::"
+    memcgroup+= cgroup + "/memory.pressure";
+
+    m_num_fds= 0;
+    for (auto trig= std::begin(triggers); trig!= std::end(triggers); ++trig)
+    {
+      if ((m_fds[m_num_fds].fd=
+             my_open(memcgroup.c_str(), O_RDWR | O_NONBLOCK, MYF(MY_WME))) < 0)
+        return;
+      if (my_write(m_fds[m_num_fds].fd, *trig, sizeof(*trig), MYF(MY_WME)) < 0)
+      {
+        my_close(m_fds[m_num_fds].fd, MYF(MY_WME));
+        continue;
+      }
+      m_fds[m_num_fds].events= POLLPRI;
+      m_num_fds++;
+    }
+    if (pipe2(m_pipe, O_CLOEXEC | O_DIRECT))
+    {
+      ib::warn() << "No memory pressure - can't create pipe";
+      m_pipe[1]= -1;
+      release();
+    }
+    my_register_filename(m_pipe[0], "mem_pressure_read", FILE_BY_DUP, 0, MYF(0));
+    my_register_filename(m_pipe[1], "mem_pressure_write", FILE_BY_DUP, 0, MYF(0));
+    m_fds[m_num_fds].fd= m_pipe[0];
+    m_fds[m_num_fds].events= POLLIN;
+    m_num_fds++;
+  }
+
+  void release() override
+  {
+    while (m_num_fds)
+    {
+      m_num_fds--;
+      my_close(m_fds[m_num_fds].fd, MYF(MY_WME));
+    }
+    if (m_pipe[1] >= 0)
+      my_close(m_pipe[1], MYF(MY_WME));
+  }
+
+  void execute() override
+  {
+    int retval;
+    while (1)
+    {
+      retval= poll(&m_fds[0], m_num_fds, -1);
+      if (retval == EINTR)
+	continue;
+      for (nfds_t i= 0; i < m_num_fds; ++i)
+      {
+        if (m_fds[i].revents & POLLPRI)
+          m_func(m_arg);
+
+        if (m_fds[i].revents & POLLIN)
+        {
+          char c;
+          /* signal to quit */
+	  if (read(m_fds[i].fd, &c, 1) && c == 'Q')
+	    break;
+	}
+      }
+    }
+  }
+
+  void quit()
+  {
+    const char c= 'Q';
+    if (write(m_pipe[1], &c, 1) < 1)
+      ib::warn() << "Failed to write memory pressure quit message";
+  }
+
+  static const unsigned char *triggers[2];
+};
+
+const unsigned char *mem_pressure::triggers[]=
+  {(const unsigned char*) "some 150000 1000000",
+   (const unsigned char*) "full 50000 1000000"};
+
+static tpool::task_group single_threaded_memory_pressure_group(1);
+static mem_pressure mem_pressure_task(garbage_collect, nullptr,
+  &single_threaded_memory_pressure_group);
+#endif /* __linux__ */
+
 #if defined(DBUG_OFF) && defined(HAVE_MADVISE) &&  defined(MADV_DODUMP)
 /** Enable buffers to be dumped to core files
 
@@ -1099,6 +1220,10 @@ bool buf_pool_t::create()
   chunk_t::map_ref= chunk_t::map_reg;
   buf_LRU_old_ratio_update(100 * 3 / 8, false);
   btr_search_sys_create();
+
+#ifdef __linux__
+  srv_thread_pool->submit_task(&mem_pressure_task);
+#endif
   ut_ad(is_initialised());
   return false;
 }
@@ -1879,10 +2004,11 @@ calc_buf_pool_size:
 	return;
 }
 
-inline void buf_pool_t::garbage_collect()
+inline size_t buf_pool_t::garbage_collect()
 {
   mysql_mutex_assert_owner(&mutex);
   lru_hp.set(nullptr);
+  size_t freed= 0;
 
   for (buf_page_t *bpage= UT_LIST_GET_LAST(LRU), *prev; bpage; bpage= prev)
   {
@@ -1896,7 +2022,8 @@ inline void buf_pool_t::garbage_collect()
     switch (bpage->oldest_modification()) {
     case 0:
     try_to_evict:
-      buf_LRU_free_page(bpage, true);
+      if (buf_LRU_free_page(bpage, true))
+        freed++;
       continue;
     case 1:
       break;
@@ -1940,6 +2067,7 @@ inline void buf_pool_t::garbage_collect()
     DiscardVirtualMemory(bpage->frame, srv_page_size);
 # endif
 #endif
+  return freed;
 }
 
 /** Thread pool task invoked by innodb_buffer_pool_size changes. */
@@ -1960,6 +2088,9 @@ void buf_resize_start()
 
 void buf_resize_shutdown()
 {
+#ifdef __linux__
+	mem_pressure_task.quit();
+#endif
 	buf_resize_task.wait();
 }
 
