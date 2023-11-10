@@ -29,6 +29,23 @@ static int dbug_json_check_min_stack_requirement()
 }
 #endif
 
+extern void pause_execution(THD *thd, double timeout);
+
+/*
+  Allocating memory and *also* using it (reading and
+  writing from it) because some build instructions cause
+  compiler to optimize out stack_used_up. Since alloca()
+  here depends on stack_used_up, it doesnt get executed
+  correctly and causes json_debug_nonembedded to fail
+  ( --error ER_STACK_OVERRUN_NEED_MORE does not occur).
+*/
+
+#define JSON_DO_PAUSE_EXECUTION(A, B) do \
+                                 { \
+                                  DBUG_EXECUTE_IF("json_pause_execution", \
+                                  { pause_execution(A, B); }); \
+                                 } while(0)
+
 /*
   Compare ASCII string against the string with the specified
   character set.
@@ -1890,6 +1907,8 @@ String *Item_func_json_array_append::val_str(String *str)
 
   DBUG_ASSERT(fixed());
 
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
+
   if ((null_value= args[0]->null_value))
     return 0;
 
@@ -2017,6 +2036,8 @@ String *Item_func_json_array_insert::val_str(String *str)
   String *js= args[0]->val_json(&tmp_js);
   uint n_arg, n_path;
   THD *thd= current_thd;
+
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
 
   DBUG_ASSERT(fixed());
 
@@ -2414,6 +2435,8 @@ String *Item_func_json_merge::val_str(String *str)
   THD *thd= current_thd;
   LINT_INIT(js2);
 
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
+
   if (args[0]->null_value)
     goto null_return;
 
@@ -2722,6 +2745,8 @@ String *Item_func_json_merge_patch::val_str(String *str)
   uint n_arg;
   bool empty_result, merge_to_null;
   THD *thd= current_thd;
+
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
 
   /* To report errors properly if some JSON is invalid. */
   je1.s.error= je2.s.error= 0;
@@ -3051,6 +3076,8 @@ String *Item_func_json_insert::val_str(String *str)
 
   DBUG_ASSERT(fixed());
 
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
+
   if ((null_value= args[0]->null_value))
     return 0;
 
@@ -3305,6 +3332,8 @@ String *Item_func_json_remove::val_str(String *str)
   THD *thd= current_thd;
 
   DBUG_ASSERT(fixed());
+
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
 
   if (args[0]->null_value)
     goto null_return;
@@ -3872,6 +3901,8 @@ String *Item_func_json_format::val_str(String *str)
   json_engine_t je;
   int tab_size= 4;
   THD *thd= current_thd;
+
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
 
   if ((null_value= args[0]->null_value))
     return 0;
