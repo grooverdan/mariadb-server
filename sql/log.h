@@ -600,6 +600,9 @@ struct wait_for_commit;
 class MYSQL_BIN_LOG: public TC_LOG, protected Event_log
 {
 
+  /** The instrumentation key to use for @ LOCK_index. */
+  PSI_mutex_key m_key_LOCK_index;
+
   /** The instrumentation key to use for opening the log index file. */
   PSI_file_key m_key_file_log_index, m_key_file_log_index_cache;
 
@@ -616,11 +619,12 @@ class MYSQL_BIN_LOG: public TC_LOG, protected Event_log
 
   /* LOCK_log and LOCK_index are inited by init_pthread_objects() */
   mysql_mutex_t LOCK_index;
+protected:
   mysql_mutex_t LOCK_xid_list;
-  mysql_cond_t  COND_xid_list;
   mysql_cond_t  COND_relay_log_updated, COND_bin_log_updated;
+  mysql_cond_t  COND_xid_list;
   ulonglong bytes_written;
-  ulonglong binlog_space_total;
+private:
   IO_CACHE index_file;
   char index_file_name[FN_REFLEN];
   /*
@@ -655,8 +659,6 @@ private:
   */
   uint *sync_period_ptr;
   uint sync_counter;
-  bool state_file_deleted;
-  bool binlog_state_recover_done;
 
   inline uint get_sync_period()
   {
@@ -811,8 +813,7 @@ public:
   int unlog(ulong cookie, my_xid xid) override;
   int unlog_xa_prepare(THD *thd, bool all) override;
   void commit_checkpoint_notify(void *cookie) override;
-  int recover(LOG_INFO *linfo, const char *last_log_name, IO_CACHE *first_log,
-              Format_description_log_event *fdle, bool do_xa);
+  virtual bool open_recovery() { return false; };
   int do_binlog_recovery(const char *opt_name, bool do_xa_recovery);
 #if !defined(MYSQL_CLIENT)
   static int remove_pending_rows_event(THD *thd, binlog_cache_data *cache_data);
@@ -835,54 +836,12 @@ public:
     DBUG_VOID_RETURN;
   }
   void set_max_size(ulong max_size_arg);
+  virtual ssize_t write_gtid_header(xid_count_per_binlog **new_xid_list_entry) { return 0; }
+  virtual void update_binlog_end_pos() = 0;
+  virtual void do_update_binlog_end_pos(my_off_t offset) {};
+  virtual void link_binlog_xid_count_list(xid_count_per_binlog **new_xid_list_entry) {};
+  virtual void io_thread_new_file() = 0;
 
-  /* Handle signaling that relay has been updated */
-  void signal_relay_log_update()
-  {
-    mysql_mutex_assert_owner(&LOCK_log);
-    DBUG_ASSERT(is_relay_log);
-    DBUG_ENTER("MYSQL_BIN_LOG::signal_relay_log_update");
-    relay_signal_cnt++;
-    mysql_cond_broadcast(&COND_relay_log_updated);
-    DBUG_VOID_RETURN;
-  }
-  void signal_bin_log_update()
-  {
-    mysql_mutex_assert_owner(&LOCK_binlog_end_pos);
-    DBUG_ASSERT(!is_relay_log);
-    DBUG_ENTER("MYSQL_BIN_LOG::signal_bin_log_update");
-    mysql_cond_broadcast(&COND_bin_log_updated);
-    DBUG_VOID_RETURN;
-  }
-  void update_binlog_end_pos()
-  {
-    if (is_relay_log)
-      signal_relay_log_update();
-    else
-    {
-      lock_binlog_end_pos();
-      binlog_end_pos= my_b_safe_tell(&log_file);
-      signal_bin_log_update();
-      unlock_binlog_end_pos();
-    }
-  }
-  void update_binlog_end_pos(my_off_t pos)
-  {
-    mysql_mutex_assert_owner(&LOCK_log);
-    mysql_mutex_assert_not_owner(&LOCK_binlog_end_pos);
-    lock_binlog_end_pos();
-    /*
-      Note: it would make more sense to assert(pos > binlog_end_pos)
-      but there are two places triggered by mtr that has pos == binlog_end_pos
-      i didn't investigate but accepted as it should do no harm
-    */
-    DBUG_ASSERT(pos >= binlog_end_pos);
-    binlog_end_pos= pos;
-    signal_bin_log_update();
-    unlock_binlog_end_pos();
-  }
-
-  void wait_for_update_relay_log(THD* thd);
   void init(ulong max_size);
   void init_pthread_objects();
   void cleanup();
@@ -901,9 +860,6 @@ public:
   bool write(Log_event* event_info,
              my_bool *with_annotate= 0); // binary log write
 
-  bool write_incident_already_locked(THD *thd);
-  bool write_incident(THD *thd);
-  void write_binlog_checkpoint_event_already_locked(const char *name, uint len);
   bool write_table_map(THD *thd, TABLE *table, bool with_annotate);
   void start_union_events(THD *thd, query_id_t query_id_param);
   void stop_union_events(THD *thd);
@@ -927,7 +883,6 @@ public:
   bool is_active(const char* log_file_name);
   virtual bool can_purge_log(const char *log_file_name) = 0;
   int update_log_index(LOG_INFO* linfo, bool need_update_threads);
-  int rotate(bool force_rotate, bool* check_purge);
   void checkpoint_and_purge(ulong binlog_id);
   int rotate_and_purge(bool force_rotate, DYNAMIC_ARRAY* drop_gtid_domain= NULL);
   /**
@@ -956,16 +911,8 @@ public:
     count_binlog_space();
     mysql_mutex_unlock(&LOCK_index);
   }
-  void reset_binlog_space_total() { binlog_space_total= 0; }
-  ulonglong get_binlog_space_total();
   int real_purge_logs_by_size(ulonglong binlog_pos);
-  inline int purge_logs_by_size(ulonglong binlog_pos)
-  {
-    if (!binlog_space_total || is_relay_log || ! binlog_space_limit ||
-        binlog_space_total + binlog_pos <= binlog_space_limit)
-      return 0;
-    return real_purge_logs_by_size(binlog_pos);
-  }
+  virtual int purge_logs_by_size(ulonglong binlog_pos) = 0;
   int set_purge_index_file_name(const char *base_file_name);
   int open_purge_index_file(bool destroy);
   bool truncate_and_remove_binlogs(const char *truncate_file,
@@ -1020,20 +967,6 @@ public:
   int bump_seq_no_counter_if_needed(uint32 domain_id, uint64 seq_no);
   bool check_strict_gtid_sequence(uint32 domain_id, uint32 server_id,
                                   uint64 seq_no, bool no_error= false);
-
-  /**
-   * used when opening new file, and binlog_end_pos moves backwards
-   */
-  void reset_binlog_end_pos(const char file_name[FN_REFLEN], my_off_t pos)
-  {
-    mysql_mutex_assert_owner(&LOCK_log);
-    mysql_mutex_assert_not_owner(&LOCK_binlog_end_pos);
-    lock_binlog_end_pos();
-    binlog_end_pos= pos;
-    strcpy(binlog_end_pos_file, file_name);
-    signal_bin_log_update();
-    unlock_binlog_end_pos();
-  }
 
   /*
     It is called by the threads(e.g. dump thread) which want to read
@@ -1122,7 +1055,7 @@ class MYSQL_BINARY_LOG: public MYSQL_BIN_LOG
     bool ro_1pc;  // passes the binlog_cache_mngr::ro_1pc value to Gtid ctor
   };
 
-  // current file sequence number for load data infile binary logging
+  /* current file sequence number for load data infile binary logging */
   uint file_id;
   /* Queue of transactions queued up to participate in group commit. */
   group_commit_entry *group_commit_queue;
@@ -1140,13 +1073,18 @@ class MYSQL_BINARY_LOG: public MYSQL_BIN_LOG
   /* The reason why the group commit was grouped */
   ulonglong group_commit_trigger_count, group_commit_trigger_timeout;
   ulonglong group_commit_trigger_lock_wait;
+  ulonglong binlog_space_total;
+  bool binlog_state_recover_done;
+  bool state_file_deleted;
+
   int write_transaction_or_stmt(group_commit_entry *entry, uint64 commit_id);
   int queue_for_group_commit(group_commit_entry *entry);
   bool write_transaction_to_binlog_events(group_commit_entry *entry);
   void trx_group_commit_leader(group_commit_entry *leader);
 public:
-  MYSQL_BINARY_LOG(uint *sync_period)
-    :MYSQL_BIN_LOG(sync_period)
+  MYSQL_BINARY_LOG(uint *sync_period) 
+    :MYSQL_BIN_LOG(sync_period), binlog_space_total(0),
+    binlog_state_recover_done(false), state_file_deleted(false)
   {
     is_relay_log= 0;
     group_commit_queue= 0;
@@ -1158,15 +1096,79 @@ public:
     group_commit_trigger_lock_wait= 0;
     file_id= 1;
   }
+  bool open_recovery() override;
+  ssize_t write_gtid_header(xid_count_per_binlog **new_xid_list_entry) override;
+  void do_update_binlog_end_pos(my_off_t offset) override;
+  void link_binlog_xid_count_list(xid_count_per_binlog **new_xid_list_entry) override;
+  void io_thread_new_file() override
+  { update_binlog_end_pos(); }
   void wait_for_sufficient_commits();
   void binlog_trigger_immediate_group_commit();
   bool write_transaction_to_binlog(THD *thd, binlog_cache_mngr *cache_mngr,
                                    Log_event *end_ev, bool all,
                                    bool using_stmt_cache, bool using_trx_cache,
                                    bool is_ro_1pc);
+  void signal_bin_log_update()
+  {
+    mysql_mutex_assert_owner(&LOCK_binlog_end_pos);
+    DBUG_ENTER("MYSQL_BINARY_LOG::signal_bin_log_update");
+    mysql_cond_broadcast(&COND_bin_log_updated);
+    DBUG_VOID_RETURN;
+  }
+  void update_binlog_end_pos() override
+  {
+    lock_binlog_end_pos();
+    binlog_end_pos= my_b_safe_tell(&log_file);
+    signal_bin_log_update();
+    unlock_binlog_end_pos();
+  }
+  int purge_logs_by_size(ulonglong binlog_pos) override
+  {
+    if (!binlog_space_total || ! binlog_space_limit ||
+        binlog_space_total + binlog_pos <= binlog_space_limit)
+      return 0;
+    return real_purge_logs_by_size(binlog_pos);
+  }
+  bool write_incident_already_locked(THD *thd);
+  bool write_incident(THD *thd);
+  int rotate(bool force_rotate, bool* check_purge);
   uint next_file_id();
   void set_status_variables(THD *thd);
   bool can_purge_log(const char *log_file_name) override;
+  int recover(LOG_INFO *linfo, const char *last_log_name, IO_CACHE *first_log,
+              Format_description_log_event *fdle, bool do_xa);
+  void write_binlog_checkpoint_event_already_locked(const char *name, uint len);
+  void update_binlog_end_pos(my_off_t pos)
+  {
+    mysql_mutex_assert_owner(&LOCK_log);
+    mysql_mutex_assert_not_owner(&LOCK_binlog_end_pos);
+    lock_binlog_end_pos();
+    /*
+      Note: it would make more sense to assert(pos > binlog_end_pos)
+      but there are two places triggered by mtr that has pos == binlog_end_pos
+      i didn't investigate but accepted as it should do no harm
+    */
+    DBUG_ASSERT(pos >= binlog_end_pos);
+    binlog_end_pos= pos;
+    signal_bin_log_update();
+    unlock_binlog_end_pos();
+  }
+
+  /**
+   * used when opening new file, and binlog_end_pos moves backwards
+   */
+  void reset_binlog_end_pos(const char file_name[FN_REFLEN], my_off_t pos)
+  {
+    mysql_mutex_assert_owner(&LOCK_log);
+    mysql_mutex_assert_not_owner(&LOCK_binlog_end_pos);
+    lock_binlog_end_pos();
+    binlog_end_pos= pos;
+    strcpy(binlog_end_pos_file, file_name);
+    signal_bin_log_update();
+    unlock_binlog_end_pos();
+  }
+  void reset_binlog_space_total() { binlog_space_total= 0; }
+  ulonglong get_binlog_space_total();
 };
 
 
@@ -1175,10 +1177,29 @@ class MYSQL_RELAY_LOG: public MYSQL_BIN_LOG
 public:
   MYSQL_RELAY_LOG(uint *sync_period)
     :MYSQL_BIN_LOG(sync_period)
+  { is_relay_log= 1; }
+  void wait_for_update_relay_log(THD* thd);
+
+  /* Handle signaling that relay has been updated */
+  void signal_relay_log_update()
   {
-    is_relay_log= 1;
+    mysql_mutex_assert_owner(&LOCK_log);
+    DBUG_ENTER("MYSQL_RELAY_LOG::signal_relay_log_update");
+    relay_signal_cnt++;
+    mysql_cond_broadcast(&COND_relay_log_updated);
+    DBUG_VOID_RETURN;
+  }
+  void update_binlog_end_pos() override
+  {
+    signal_relay_log_update();
   }
   bool can_purge_log(const char *log_file_name) override;
+  int purge_logs_by_size(ulonglong binlog_pos) override
+  {
+    return 0;
+  }
+  void io_thread_new_file() override
+  { signal_relay_log_update(); }
 };
 
 

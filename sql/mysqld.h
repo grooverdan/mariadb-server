@@ -397,7 +397,7 @@ extern PSI_thread_key key_thread_delayed_insert,
   key_thread_one_connection, key_thread_signal_hand,
   key_thread_slave_background, key_rpl_parallel_thread;
 
-extern PSI_file_key key_file_binlog_cache,
+extern PSI_file_key key_file_binlog, key_file_binlog_cache,
   key_file_binlog_index, key_file_binlog_index_cache, key_file_casetest,
   key_file_dbopt, key_file_des_key_file, key_file_ERRMSG, key_select_to_file,
   key_file_fileparser, key_file_frm, key_file_global_ddl_log, key_file_load,
