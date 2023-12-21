@@ -823,15 +823,16 @@ public:
     return this;
   }
 
-  int open(const char *opt_name);
-  void close();
+  int open(const char *opt_name) override;
+  void close() override;
   virtual int generate_new_name(char *new_name, const char *log_name,
-                                ulong next_log_number);
+                                ulong next_log_number) override;
   int log_and_order(THD *thd, my_xid xid, bool all,
-                    bool need_prepare_ordered, bool need_commit_ordered);
-  int unlog(ulong cookie, my_xid xid);
-  int unlog_xa_prepare(THD *thd, bool all);
-  void commit_checkpoint_notify(void *cookie);
+                    bool need_prepare_ordered, bool need_commit_ordered)
+	            override;
+  int unlog(ulong cookie, my_xid xid) override;
+  int unlog_xa_prepare(THD *thd, bool all) override;
+  void commit_checkpoint_notify(void *cookie) override;
   int recover(LOG_INFO *linfo, const char *last_log_name, IO_CACHE *first_log,
               Format_description_log_event *fdle, bool do_xa);
   int do_binlog_recovery(const char *opt_name, bool do_xa_recovery);
@@ -1017,7 +1018,7 @@ public:
   inline char* get_log_fname() { return log_file_name; }
   using MYSQL_LOG::get_log_lock;
   inline mysql_cond_t* get_bin_log_cond() { return &COND_bin_log_updated; }
-  inline IO_CACHE* get_log_file() { return &log_file; }
+  inline IO_CACHE* get_log_file() override { return &log_file; }
   inline uint64 get_reset_master_count() { return reset_master_count; }
 
   inline void lock_index() { mysql_mutex_lock(&LOCK_index);}
