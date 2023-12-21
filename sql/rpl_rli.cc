@@ -70,15 +70,9 @@ Relay_log_info::Relay_log_info(bool is_slave_recovery, const char* thread_name)
 
   relay_log_state.init();
 #ifdef HAVE_PSI_INTERFACE
-  relay_log.set_psi_keys(key_RELAYLOG_LOCK_index,
-                         key_RELAYLOG_COND_relay_log_updated,
-                         key_RELAYLOG_COND_bin_log_updated,
-                         key_file_relaylog,
-                         key_file_relaylog_cache,
+  relay_log.set_psi_keys(
                          key_file_relaylog_index,
-                         key_file_relaylog_index_cache,
-                         key_RELAYLOG_COND_queue_busy,
-                         key_LOCK_relaylog_end_pos);
+                         key_file_relaylog_index_cache);
 #endif
 
   group_relay_log_name[0]= event_relay_log_name[0]=

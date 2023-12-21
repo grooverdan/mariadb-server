@@ -324,7 +324,7 @@ extern PSI_mutex_key key_PAGE_lock, key_LOCK_sync, key_LOCK_active,
 extern PSI_mutex_key key_LOCK_des_key_file;
 #endif
 
-extern PSI_mutex_key key_BINLOG_LOCK_index, key_BINLOG_LOCK_xid_list,
+extern PSI_mutex_key key_BINLOG_LOCK_xid_list,
   key_BINLOG_LOCK_binlog_background_thread,
   key_LOCK_binlog_end_pos,
   key_delayed_insert_mutex, key_hash_filo_lock, key_LOCK_active_mi,
@@ -349,7 +349,6 @@ extern PSI_mutex_key key_BINLOG_LOCK_index, key_BINLOG_LOCK_xid_list,
   key_LOCK_start_thread,
   key_LOCK_error_messages,
   key_PARTITION_LOCK_auto_inc;
-extern PSI_mutex_key key_RELAYLOG_LOCK_index;
 extern PSI_mutex_key key_LOCK_relaylog_end_pos;
 extern PSI_mutex_key key_LOCK_slave_state, key_LOCK_binlog_state,
   key_LOCK_rpl_thread, key_LOCK_rpl_thread_pool, key_LOCK_parallel_entry;
@@ -385,10 +384,7 @@ extern PSI_cond_key key_BINLOG_COND_xid_list, key_BINLOG_update_cond,
   key_rpl_group_info_sleep_cond,
   key_TABLE_SHARE_cond, key_user_level_lock_cond,
   key_COND_start_thread;
-extern PSI_cond_key key_RELAYLOG_COND_relay_log_updated,
-  key_RELAYLOG_COND_bin_log_updated, key_COND_wakeup_ready,
-  key_COND_wait_commit;
-extern PSI_cond_key key_RELAYLOG_COND_queue_busy;
+extern PSI_cond_key key_COND_wakeup_ready, key_COND_wait_commit;
 extern PSI_cond_key key_TC_LOG_MMAP_COND_queue_busy;
 extern PSI_cond_key key_COND_rpl_thread, key_COND_rpl_thread_queue,
   key_COND_rpl_thread_stop, key_COND_rpl_thread_pool,
@@ -401,8 +397,8 @@ extern PSI_thread_key key_thread_delayed_insert,
   key_thread_one_connection, key_thread_signal_hand,
   key_thread_slave_background, key_rpl_parallel_thread;
 
-extern PSI_file_key key_file_binlog, key_file_binlog_cache,
-       key_file_binlog_index, key_file_binlog_index_cache, key_file_casetest,
+extern PSI_file_key key_file_binlog_cache,
+  key_file_binlog_index, key_file_binlog_index_cache, key_file_casetest,
   key_file_dbopt, key_file_des_key_file, key_file_ERRMSG, key_select_to_file,
   key_file_fileparser, key_file_frm, key_file_global_ddl_log, key_file_load,
   key_file_loadfile, key_file_log_event_data, key_file_log_event_info,
@@ -410,8 +406,7 @@ extern PSI_file_key key_file_binlog, key_file_binlog_cache,
   key_file_pid, key_file_relay_log_info, key_file_send_file, key_file_tclog,
   key_file_trg, key_file_trn, key_file_init, key_file_log_ddl;
 extern PSI_file_key key_file_query_log, key_file_slow_log;
-extern PSI_file_key key_file_relaylog, key_file_relaylog_index,
-                    key_file_relaylog_cache, key_file_relaylog_index_cache;
+extern PSI_file_key key_file_relaylog_index, key_file_relaylog_index_cache;
 extern PSI_socket_key key_socket_tcpip, key_socket_unix,
   key_socket_client_connection;
 extern PSI_file_key key_file_binlog_state;

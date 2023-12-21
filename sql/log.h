@@ -600,16 +600,8 @@ struct wait_for_commit;
 class MYSQL_BIN_LOG: public TC_LOG, protected Event_log
 {
 
-  /** The instrumentation key to use for @ LOCK_index. */
-  PSI_mutex_key m_key_LOCK_index;
-  /** The instrumentation key to use for @ COND_relay_log_updated */
-  PSI_cond_key m_key_relay_log_update;
-  /** The instrumentation key to use for @ COND_bin_log_updated */
-  PSI_cond_key m_key_bin_log_update;
   /** The instrumentation key to use for opening the log index file. */
   PSI_file_key m_key_file_log_index, m_key_file_log_index_cache;
-
-  PSI_cond_key m_key_COND_queue_busy;
 
   /*
     When this is set, a RESET MASTER is in progress.
@@ -796,25 +788,11 @@ public:
   */
 
 #ifdef HAVE_PSI_INTERFACE
-  void set_psi_keys(PSI_mutex_key key_LOCK_index,
-                    PSI_cond_key key_relay_log_update,
-                    PSI_cond_key key_bin_log_update,
-                    PSI_file_key key_file_log,
-                    PSI_file_key key_file_log_cache,
-                    PSI_file_key key_file_log_index,
-                    PSI_file_key key_file_log_index_cache,
-                    PSI_cond_key key_COND_queue_busy,
-                    PSI_mutex_key key_LOCK_binlog_end_pos)
+  void set_psi_keys(PSI_file_key key_file_log_index,
+                    PSI_file_key key_file_log_index_cache)
   {
-    m_key_LOCK_index= key_LOCK_index;
-    m_key_relay_log_update=  key_relay_log_update;
-    m_key_bin_log_update=    key_bin_log_update;
-    m_key_file_log= key_file_log;
-    m_key_file_log_cache= key_file_log_cache;
     m_key_file_log_index= key_file_log_index;
     m_key_file_log_index_cache= key_file_log_index_cache;
-    m_key_COND_queue_busy= key_COND_queue_busy;
-    m_key_LOCK_binlog_end_pos= key_LOCK_binlog_end_pos;
   }
 #endif
 
