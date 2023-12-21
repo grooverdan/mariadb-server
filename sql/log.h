@@ -597,7 +597,7 @@ class binlog_cache_data;
 struct rpl_gtid;
 struct wait_for_commit;
 
-class MYSQL_BIN_LOG: public TC_LOG, private Event_log
+class MYSQL_BIN_LOG: public TC_LOG, protected Event_log
 {
 
   /** The instrumentation key to use for @ LOCK_index. */
@@ -653,8 +653,10 @@ class MYSQL_BIN_LOG: public TC_LOG, private Event_log
   */
   ulong last_used_log_number;
   uint open_count;				// For replication
+protected:
   mysql_cond_t COND_queue_busy;
 
+private:
   /* pointer to the sync period variable, for binlog this will be
      sync_binlog_period, for relay log this will be
      sync_relay_log_period
@@ -1097,8 +1099,6 @@ public:
   */
   my_off_t binlog_end_pos;
   char binlog_end_pos_file[FN_REFLEN];
-  friend class MYSQL_BINARY_LOG;
-  friend class MYSQL_RELAY_LOG;
 };
 
 
