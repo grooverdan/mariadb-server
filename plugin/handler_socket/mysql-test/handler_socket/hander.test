@@ -1,0 +1,21 @@
+
+--let $rpl_topology= 1->2
+--source include/rpl_init.inc
+
+CREATE TABLE t1 (i int NOT NULL, v varchar(20), PRIMARY KEY (i) );
+
+perl;
+use lib "$ENV{MTR_SUITE_DIR}/../../perl-Net-HandlerSocket/lib";
+use Net::HandlerSocket;
+
+my $hsargs = { host => 'localhost', port => $ENV{HANDLER_PORT} };
+my $cli = new Net::HandlerSocket($hsargs);
+$cli->open_index(1, 'test', 't1', 'PRIMARY', 'v');
+$cli->execute_find(1, '>=', [ 'aaa', 'bbb' ], 5, 100);
+
+EOF
+
+
+DROP TABLE t1;
+
+--source include/rpl_end.inc
