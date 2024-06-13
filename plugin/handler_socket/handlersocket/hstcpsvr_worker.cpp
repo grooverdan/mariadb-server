@@ -16,6 +16,7 @@
 #include <list>
 #if __linux__
 #include <sys/epoll.h>
+#include <fcntl.h>
 #endif
 
 #include "hstcpsvr_worker.hpp"
