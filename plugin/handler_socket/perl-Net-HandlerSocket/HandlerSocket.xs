@@ -215,9 +215,12 @@ execute_internal(SV *obj, int id, const char *op, AV *keys, int limit,
       av_to_strrefarr(invalues, ivs);
     }
     ptr->request_buf_exec_generic(id, dena::string_ref(op, strlen(op)),
-      &keyarr[0], keyarr.size(), limit, skip, modop_ref, &mvarr[0],
-      mvarr.size(), &farr[0], farr.size(), invalues_keypart, &ivs[0],
-      ivs.size());
+      keyarr.size() ? &keyarr[0] : NULL, keyarr.size(),
+      limit, skip, modop_ref,
+      mvarr.size() ? &mvarr[0] : NULL, mvarr.size(),
+      farr.size() ? &farr[0] : NULL, farr.size(),
+      invalues_keypart,
+      ivs.size() ? &ivs[0] : NULL, ivs.size());
     AV *const av = newAV();
     retval = av;
     if (ptr->request_send() != 0) {
