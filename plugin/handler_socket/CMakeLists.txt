@@ -37,3 +37,9 @@ MYSQL_ADD_PLUGIN(handlersocket
   LINK_LIBRARIES  hsclient RECOMPILE_FOR_EMBEDDED
 )
 
+
+CONFIGURE_FILE(perl-Net-HandlerSocket/Makefile.PL.in perl-Net-HandlerSocket/Makefile.PL)
+ADD_CUSTOM_TARGET(perlmaker WORKING_DIRECTORY perl-Net-HandlerSocket
+  COMMAND perl Makefile.PL
+  BYPRODUCTS HandlerSocket.bs
+  SOURCES perl-Net-HandlerSocket/HandlerSocket.xs perl-Net-HandlerSocket/Makefile.PL)
