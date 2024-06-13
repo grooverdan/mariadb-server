@@ -4,15 +4,15 @@ use ExtUtils::MakeMaker;
 # the contents of the Makefile that is written.
 WriteMakefile(
     NAME              => 'Net::HandlerSocket',
-    VERSION_FROM      => 'lib/Net/HandlerSocket.pm', # finds $VERSION
+    VERSION_FROM      => '@CMAKE_CURRENT_SOURCE_DIR@/perl-Net-HandlerSocket/lib/Net/HandlerSocket.pm', # finds $VERSION
     PREREQ_PM         => {}, # e.g., Module::Name => 1.1
     ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
-      (ABSTRACT_FROM  => 'lib/Net/HandlerSocket.pm', # retrieve abstract from module
+      (ABSTRACT_FROM  => '@CMAKE_CURRENT_SOURCE_DIR@/perl-Net-HandlerSocket/lib/Net/HandlerSocket.pm', # retrieve abstract from module
        AUTHOR         => 'higuchi dot akira at dena dot jp>') : ()),
-    CC                => 'g++ -fPIC',
-    LD                => 'g++ -fPIC',
-    LIBS              => ['-L@builddir@/../libhsclient -L@builddir@/../libhsclient/.libs -lhsclient'],
+    CC                => '@CMAKE_C_COMPILER@',
+    LD                => '@CMAKE_LINKER@',
+    LIBS              => ['-L@CMAKE_CURRENT_BINARY_DIR@/ -lhsclient'],
     DEFINE            => '',
-    INC               => '-I. -I../libhsclient -I@builddir@/../libhsclient -I@top_builddir@/include',
-    OPTIMIZE          => '-g -O3 -Wall -Wno-unused',
+    INC               => '-I. -I@CMAKE_CURRENT_SOURCE_DIR@/libhsclient',
+    OPTIMIZE          => '@CMAKE_CXX_FLAGS@',
 );
