@@ -2,20 +2,42 @@
 --let $rpl_topology= 1->2
 --source include/rpl_init.inc
 
+SHOW GLOBAL VARIABLES LIKE 'handler_%';
 CREATE TABLE t1 (i int NOT NULL, v varchar(20), PRIMARY KEY (i) );
 
 perl;
 use lib "$ENV{MTR_SUITE_DIR}/../../perl-Net-HandlerSocket/lib";
 use Net::HandlerSocket;
 
-my $hsargs = { host => 'localhost', port => $ENV{HANDLER_PORT} };
+my $hsargs = { host => 'localhost', port => $ENV{HANDLER_PORT_WR} };
 my $cli = new Net::HandlerSocket($hsargs);
+print STDERR "connected HS\n";
 $cli->open_index(1, 'test', 't1', 'PRIMARY', 'v');
-$cli->execute_find(1, '>=', [ 'aaa', 'bbb' ], 5, 100);
+print STDERR "open_index HS\n";
+my $r = $cli->execute_insert(1, [ '1', 'bbb' ]);
+if ($r->[0] != 0) {
+  die;
+}
+print("execute insert worked!\n");
+
+my $r = $cli->execute_find(1, '>=', [ 'aaa', 'bbb' ], 5, 100);
+for my $e (@{$r}) {
+        print "execute_find [$e]";
+}
+print "\n";
+
 
 EOF
 
+SELECT * from t1 order by i;
+--save_master_pos
 
+--connection server_2
+--sync_with_master
+SELECT * from t1 order by i;
+
+
+--connection server_1
 DROP TABLE t1;
 
 --source include/rpl_end.inc
