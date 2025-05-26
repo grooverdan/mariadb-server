@@ -1,0 +1,45 @@
+name: SonarQube
+on:
+  push:
+    branches:
+      - 11.8-sonarqube
+  pull_request:
+    types: [opened, synchronize, reopened]
+jobs:
+  build:
+    name: Build and analyze
+    runs-on: ubuntu-latest
+    container:
+      image: quay.io/mariadb-foundation/bb-worker:ubuntu24.04
+      options: --user root --entrypoint /bin/bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: src
+          submodules: 'recursive'
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+      - name: Create build directory
+        run: mkdir build
+      - name: Run CMake
+        run: |
+            cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+                  -DUPDATE_SUBMODULES=OFF \
+                  -DPLUGIN_{MROONGA,ROCKSDB,OQGRAPH,COLUMNSTORE}=NO \
+                  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+                  -B build -S src
+      - name: SonarQube Dependencies
+        run: |
+          apt-get update
+          apt-get install -y unzip
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v5.2.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            --define sonar.cfamily.compile-commands="build/compile_commands.json"
+            --define sonar.projectKey=grooverdan_mariadb-server
+            --define sonar.organization=grooverdan
+            --define sonar.token=${SONAR_TOKEN}
+            --define sonar.sources=src
+            --define sonar.exclusions=storage/mroonga/**/*,storage/rocksdb/**/*,storage/oqgraph/**/*,storage/columnstore/**/*,**/*.java,mysql-test/std_data/**/*,scripts/**/*,**/*.sql
