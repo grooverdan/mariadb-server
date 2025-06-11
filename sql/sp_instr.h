@@ -274,7 +274,7 @@ public:
     lex->sp_lex_in_use= true;
   }
 
-  ~sp_lex_keeper()
+  void clear()
   {
     if (m_lex_resp)
     {
@@ -285,6 +285,10 @@ public:
       lex_end(m_lex);
       delete m_lex;
     }
+  }
+  ~sp_lex_keeper()
+  {
+   clear();
   }
 
   /**
@@ -409,15 +413,15 @@ public:
     {
       /*
         Free items owned by an instance of sp_lex_instr and call m_lex_keeper's
-        destructor explicitly to avoid referencing a deallocated memory
-        owned by the memory root m_mem_root_for_reparsing that else would take
-        place in case their implicit invocations (in that case, m_lex_keeper's
+        clear() explicitly to avoid referencing a deallocated memory
+        owned by the memory root m_mem_root_for_reparsing. Otherwise would take
+        their implicit invocations (in that case, m_lex_keeper's
         destructor and the method free_items() called by ~sp_instr are invoked
         after the memory owned by the memory root m_mem_root_for_reparsing
         be freed, that would result in abnormal server termination)
       */
       free_items();
-      m_lex_keeper.~sp_lex_keeper();
+      m_lex_keeper.clear();
       free_root(m_mem_root_for_reparsing, MYF(0));
       m_mem_root_for_reparsing= nullptr;
     }
