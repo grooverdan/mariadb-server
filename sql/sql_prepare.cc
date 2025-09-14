@@ -1513,7 +1513,12 @@ static int mysql_test_update(Prepared_statement *stmt,
   {
     List_iterator_fast<Item> fs(select->item_list), vs(stmt->lex->value_list);
     while (Item *f= fs++)
-      vs++->associate_with_target_field(thd, static_cast<Item_field*>(f));
+    {
+      if (f->type() == Item::FIELD_ITEM)
+        vs++->associate_with_target_field(thd, static_cast<Item_field*>(f));
+      else
+	vs++;
+    }
   }
   /* TODO: here we should send types of placeholders to the client. */
   DBUG_RETURN(0);
