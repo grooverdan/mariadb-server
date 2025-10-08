@@ -722,7 +722,7 @@ static void wsrep_init_thd_for_schema(THD *thd)
 
   thd->real_id=pthread_self(); // Keep purify happy
 
-  thd->prior_thr_create_utime= thd->start_utime= thd->thr_create_utime;
+  thd->prior_thr_create_utime= thd->start_utime= microsecond_interval_timer();
 
   /* No Galera replication */
   thd->variables.wsrep_on= 0;
