@@ -5553,4 +5553,67 @@ full	overlap	jai
 ["2"]	["0"]	NULL
 ["2"]	["2"]	["2"]
 DROP TABLE t1;
-# End of 11.4 Test
+#
+# MDEV-38033: JSON_SCHEMA_VALID function returning wrong result
+#
+SET @schema= '
+{
+  "type": "object",
+  "properties":
+  {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "arr_fields": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field1": {
+            "type": "string"
+          },
+          "field2": {
+            "type": "number"
+          }
+        },
+        "required": ["field1"]
+      }
+    }
+  }
+}';
+SET @value= '
+{
+  "id": "zero",
+  "arr_fields": [
+    {
+      "field1": "A",
+      "field2": 123
+    },
+    {
+      "field1": "B"
+    }
+  ]
+}';
+SELECT JSON_SCHEMA_VALID(@schema, @value);
+JSON_SCHEMA_VALID(@schema, @value)
+1
+#
+# MDEV-39742 11.4 JSON functions not interuptable
+#
+create table t (j text);
+insert into t values ('[1, 2, 3]'), ('[3, invalid]');
+SELECT JSON_ARRAY_INTERSECT(j, '[3, 4]') as j FROM t;
+j
+[3]
+NULL
+Warnings:
+Warning	4038	Syntax error in JSON text in argument 2 to function 'json_array_intersect' at position 5
+SELECT JSON_ARRAY_INTERSECT('[3, 4]', j) as j FROM t;
+j
+[3]
+NULL
+Warnings:
+Warning	4038	Syntax error in JSON text in argument 2 to function 'json_array_intersect' at position 5
+DROP TABLE t;
+# End of 11.4 tests
