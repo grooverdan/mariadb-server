@@ -1,0 +1,62 @@
+--source include/not_embedded.inc
+
+--echo #
+--echo # MDEV-39126: Feedback plugin to use /etc/os-release
+--echo #
+
+if (`select count(*) = 0 from information_schema.plugins
+     where plugin_name = 'feedback' and plugin_status='active'`)
+{
+  --skip Feedback plugin is not active
+}
+if (`select @@feedback_url = ""`)
+{
+  --skip Feedback plugin is not active
+}
+
+perl;
+  open(FILE, '>', $ENV{MYSQLTEST_VARDIR} . '/tmp/mdev39126_skip_test.inc') or die;
+  if (! -f '/etc/os-release')
+  {
+    print $FILE "skip No /etc/os-release found;\n";
+  }
+  close(FILE);
+EOF
+
+# Source the skip file and then clean it up immediately
+--source $MYSQLTEST_VARDIR/tmp/mdev39126_skip_test.inc
+--remove_file $MYSQLTEST_VARDIR/tmp/mdev39126_skip_test.inc
+
+perl;
+  open(my $fh, '<', '/etc/os-release') or die "Cannot open /etc/os-release: $!";
+  my $pretty_name = '';
+  while (my $line = <$fh>) {
+    chomp $line;
+    if ($line =~ /^PRETTY_NAME=(.+)$/) {
+      $pretty_name = $1;
+      $pretty_name =~ s/^"(.*)"$/$1/;
+      last;
+    }
+  }
+  close($fh);
+  open(my $out, '>', $ENV{MYSQLTEST_VARDIR} . '/tmp/mdev39126_pretty_name') or die;
+  print $out "os-release: $pretty_name";
+  close($out);
+EOF
+
+let $expected_val= `select TRIM(LOAD_FILE('$MYSQLTEST_VARDIR/tmp/mdev39126_pretty_name'))`;
+let $plugin_val= `select variable_value from information_schema.feedback
+                  where variable_name = 'Uname_distribution'`;
+
+if (`select '$plugin_val' != '$expected_val'`)
+{
+  --echo Mismatch! Plugin: '$plugin_val'
+  --echo Expected:         '$expected_val'
+  --die Uname_distribution does not match /etc/os-release PRETTY_NAME
+}
+
+--echo Uname_distribution matches /etc/os-release
+
+--remove_file $MYSQLTEST_VARDIR/tmp/mdev39126_pretty_name
+
+--echo # End of 10.11 tests
