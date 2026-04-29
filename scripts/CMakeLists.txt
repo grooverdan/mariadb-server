@@ -325,6 +325,7 @@ ELSE()
         DESTINATION ${INSTALL_BINDIR}
         COMPONENT server-galera
       )
+      EXECUTE_PROCESS(COMMAND chmod +x ${CMAKE_CURRENT_BINARY_DIR}/${file})
     ENDFOREACH()
 
     # The following script is sourced from other SST scripts, so it should
