@@ -1794,6 +1794,12 @@ JSON_EXTRACT('0E+0','$')
 SELECT JSON_EXISTS(CONCAT('[', REPEAT('[', 4000), 'Y', REPEAT(']', 4000), ', 1]'), '$[100]') as je;
 je
 NULL
+SELECT JSON_EXISTS('[[[[[Y[[[[n[[[[[[[[[[[n[[[Vn]]]]]]]]]]]]]],]]:]]]](', '$[0 to rrrrrRR-1]') as je;
+je
+NULL
+SELECT JSON_EXISTS('[[[[[Y[[[[[[[[[[[[[[[[[[Vn]]]]]]]]]]]]]],]]:]]]](', '$[0 to rrrrRR-1]') as je;
+je
+NULL
 #
 # End of 10.6 tests
 #
