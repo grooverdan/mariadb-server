@@ -15,3 +15,6 @@ leak:gnutls_x509_trust_list_init
 leak:gnutls_subject_alt_names_init
 leak:__gmp_default_allocate
 leak:__gmp_default_reallocate
+
+# unixODBC leak
+leak:save_ini_cache
