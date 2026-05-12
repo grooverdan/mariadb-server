@@ -4273,6 +4273,8 @@ innobase_end(handlerton*, ha_panic_function)
 		innodb_shutdown();
 		mysql_mutex_destroy(&log_requests.mutex);
 	}
+	else
+		buf_mem_pressure_shutdown();
 
 	DBUG_RETURN(0);
 }
