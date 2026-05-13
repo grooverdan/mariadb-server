@@ -384,17 +384,22 @@ int ha_duckdb_select_handler::init_scan()
     GROUP BY ... WITH ROLLUP  →  GROUP BY ROLLUP(...)
   */
   {
-    size_t rollup_pos= find_in_code(sql, " WITH ROLLUP");
-    if (rollup_pos != std::string::npos)
+    size_t search_from= 0;
+    size_t rollup_pos;
+    while ((rollup_pos= find_in_code(sql, " WITH ROLLUP", search_from))
+           != std::string::npos)
     {
       size_t group_pos= rfind_in_code(sql, "GROUP BY ", rollup_pos);
-      if (group_pos != std::string::npos)
+      if (group_pos != std::string::npos && group_pos >= search_from)
       {
         size_t cols_start= group_pos + 9;
         std::string cols= sql.substr(cols_start, rollup_pos - cols_start);
         std::string replacement= "GROUP BY ROLLUP(" + cols + ")";
         sql.replace(group_pos, rollup_pos + 12 - group_pos, replacement);
+        search_from= group_pos + replacement.size();
       }
+      else
+        search_from= rollup_pos + 12;
     }
   }
 
@@ -406,6 +411,13 @@ int ha_duckdb_select_handler::init_scan()
     size_t pos= 0;
     while ((pos= find_in_code(sql, "CONVERT(", pos)) != std::string::npos)
     {
+      /* Word boundary: skip if preceded by an identifier character */
+      if (pos > 0 &&
+          (isalnum((unsigned char) sql[pos - 1]) || sql[pos - 1] == '_'))
+      {
+        pos++;
+        continue;
+      }
       /* Find matching closing paren, handling nested parens */
       size_t start= pos + 8; /* after "CONVERT(" */
       int depth= 1;
@@ -462,33 +474,64 @@ int ha_duckdb_select_handler::init_scan()
   }
 
   /*
-    Rewrite STRAIGHT_JOIN → CROSS JOIN (always conditionless in MariaDB).
+    Handle STRAIGHT_JOIN: as a SELECT hint — remove; as a join keyword —
+    replace with JOIN (preserves ON clause).
     Then rewrite remaining conditionless JOIN → CROSS JOIN.
   */
   {
     size_t pos= 0;
     while ((pos= find_in_code(sql, "STRAIGHT_JOIN", pos)) != std::string::npos)
-      sql.replace(pos, 13, "CROSS JOIN");
+    {
+      /*
+        Determine if STRAIGHT_JOIN is a SELECT modifier (hint) or a join
+        keyword.  As a hint it follows SELECT/ALL/DISTINCT/DISTINCTROW.
+        As a join it follows a table name, alias, or closing paren.
+      */
+      size_t p= pos;
+      while (p > 0 && sql[p - 1] == ' ') p--;
+      size_t word_end= p;
+      while (p > 0 &&
+             (isalnum((unsigned char) sql[p - 1]) || sql[p - 1] == '_'))
+        p--;
+      size_t wlen= word_end - p;
+      bool is_hint=
+          wlen > 0 &&
+          ((wlen == 6 && ci_starts_with(sql, p, "SELECT")) ||
+           (wlen == 3 && ci_starts_with(sql, p, "ALL")) ||
+           (wlen == 8 && ci_starts_with(sql, p, "DISTINCT")) ||
+           (wlen == 11 && ci_starts_with(sql, p, "DISTINCTROW")));
+
+      if (is_hint)
+      {
+        size_t elen= 13;
+        if (pos + elen < sql.size() && sql[pos + elen] == ' ')
+          elen++;
+        sql.erase(pos, elen);
+      }
+      else
+        sql.replace(pos, 13, "JOIN");
+    }
     /*
       Scan for remaining conditionless JOIN (no ON/USING).
     */
     pos= 0;
     while ((pos= find_in_code(sql, " JOIN ", pos)) != std::string::npos)
     {
-      /* Skip LEFT/RIGHT/INNER/CROSS/NATURAL JOIN */
-      if (pos >= 6)
+      /* Skip qualified JOINs: LEFT/RIGHT/INNER/CROSS/NATURAL/FULL/OUTER */
       {
-        size_t check_start= (pos > 10) ? pos - 10 : 0;
-        bool skip= false;
-        for (size_t k= check_start; k < pos; k++)
-        {
-          if (ci_starts_with(sql, k, "CROSS"))
-          {
-            skip= true;
-            break;
-          }
-        }
-        if (skip)
+        size_t p= pos;
+        while (p > 0 && sql[p - 1] == ' ') p--;
+        size_t word_end= p;
+        while (p > 0 && isalpha((unsigned char) sql[p - 1])) p--;
+        size_t wlen= word_end - p;
+        if (wlen > 0 &&
+            ((wlen == 5 && ci_starts_with(sql, p, "CROSS")) ||
+             (wlen == 7 && ci_starts_with(sql, p, "NATURAL")) ||
+             (wlen == 4 && ci_starts_with(sql, p, "LEFT")) ||
+             (wlen == 5 && ci_starts_with(sql, p, "RIGHT")) ||
+             (wlen == 5 && ci_starts_with(sql, p, "INNER")) ||
+             (wlen == 4 && ci_starts_with(sql, p, "FULL")) ||
+             (wlen == 5 && ci_starts_with(sql, p, "OUTER"))))
         {
           pos+= 6;
           continue;
@@ -604,8 +647,8 @@ int ha_duckdb_select_handler::init_scan()
     MariaDB: LIMIT 2,5   DuckDB: LIMIT 5 OFFSET 2
   */
   {
-    size_t lpos= rfind_in_code(sql, "LIMIT ");
-    if (lpos != std::string::npos)
+    size_t lpos= 0;
+    while ((lpos= find_in_code(sql, "LIMIT ", lpos)) != std::string::npos)
     {
       size_t after_limit= lpos + 6;
       /* Skip whitespace */
@@ -615,6 +658,11 @@ int ha_duckdb_select_handler::init_scan()
       size_t num1_start= after_limit;
       while (after_limit < sql.size() && isdigit(sql[after_limit]))
         after_limit++;
+      if (after_limit == num1_start)
+      {
+        lpos= after_limit;
+        continue;
+      }
       /* Check for comma */
       size_t comma= after_limit;
       while (comma < sql.size() && sql[comma] == ' ')
@@ -633,7 +681,10 @@ int ha_duckdb_select_handler::init_scan()
         std::string replacement= "LIMIT " + count_str + " OFFSET " +
                                  offset_str;
         sql.replace(lpos, num2_end - lpos, replacement);
+        lpos+= replacement.size();
       }
+      else
+        lpos= after_limit;
     }
   }
 
