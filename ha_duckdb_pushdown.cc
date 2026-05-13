@@ -18,7 +18,6 @@
 */
 
 #define MYSQL_SERVER 1
-#include <algorithm>
 #include <my_global.h>
 #include "sql_class.h"
 #include "sql_select.h"
@@ -208,6 +207,147 @@ size_t ha_duckdb_select_handler::external_table_count() const
   return external_table_names.size();
 }
 
+/**
+  Case-insensitive find that skips single-quoted strings ('...'),
+  double-quoted strings ("..."), backtick identifiers (`...`),
+  line comments (-- ...) and C-style comments.
+  Returns position of the first match at or after @p start,
+  or std::string::npos.
+*/
+static size_t find_in_code(const std::string &sql, const char *pattern,
+                           size_t start= 0)
+{
+  size_t plen= strlen(pattern);
+  if (plen == 0 || sql.size() < plen)
+    return std::string::npos;
+
+  size_t i= start;
+  while (i + plen <= sql.size())
+  {
+    unsigned char c= sql[i];
+
+    /* Skip single-quoted strings: handle \' and '' escapes */
+    if (c == '\'')
+    {
+      for (i++; i < sql.size(); i++)
+      {
+        if (sql[i] == '\\') { i++; continue; }
+        if (sql[i] == '\'')
+        {
+          if (i + 1 < sql.size() && sql[i + 1] == '\'') { i++; continue; }
+          break;
+        }
+      }
+      i++;
+      continue;
+    }
+
+    /* Skip double-quoted strings */
+    if (c == '"')
+    {
+      for (i++; i < sql.size(); i++)
+      {
+        if (sql[i] == '\\') { i++; continue; }
+        if (sql[i] == '"')
+        {
+          if (i + 1 < sql.size() && sql[i + 1] == '"') { i++; continue; }
+          break;
+        }
+      }
+      i++;
+      continue;
+    }
+
+    /* Skip backtick identifiers */
+    if (c == '`')
+    {
+      for (i++; i < sql.size(); i++)
+      {
+        if (sql[i] == '`')
+        {
+          if (i + 1 < sql.size() && sql[i + 1] == '`') { i++; continue; }
+          break;
+        }
+      }
+      i++;
+      continue;
+    }
+
+    /* Skip -- line comments */
+    if (c == '-' && i + 1 < sql.size() && sql[i + 1] == '-')
+    {
+      for (i += 2; i < sql.size() && sql[i] != '\n'; i++) {}
+      continue;
+    }
+
+    /* Skip C-style comments */
+    if (c == '/' && i + 1 < sql.size() && sql[i + 1] == '*')
+    {
+      for (i += 2; i + 1 < sql.size(); i++)
+      {
+        if (sql[i] == '*' && sql[i + 1] == '/') { i += 2; break; }
+      }
+      continue;
+    }
+
+    /* Case-insensitive match at position i */
+    bool match= true;
+    for (size_t j= 0; j < plen; j++)
+    {
+      if (toupper((unsigned char) sql[i + j]) !=
+          toupper((unsigned char) pattern[j]))
+      {
+        match= false;
+        break;
+      }
+    }
+    if (match)
+      return i;
+
+    i++;
+  }
+
+  return std::string::npos;
+}
+
+/**
+  Reverse find_in_code: returns position of the last match at or before
+  @p before, or std::string::npos.
+*/
+static size_t rfind_in_code(const std::string &sql, const char *pattern,
+                            size_t before= std::string::npos)
+{
+  size_t last= std::string::npos;
+  size_t pos= 0;
+  for (;;)
+  {
+    pos= find_in_code(sql, pattern, pos);
+    if (pos == std::string::npos || pos > before)
+      break;
+    last= pos;
+    pos++;
+  }
+  return last;
+}
+
+/**
+  Case-insensitive prefix match: does @p sql at position @p pos start
+  with @p prefix?
+*/
+static bool ci_starts_with(const std::string &sql, size_t pos,
+                           const char *prefix)
+{
+  for (size_t i= 0; prefix[i]; i++)
+  {
+    if (pos + i >= sql.size())
+      return false;
+    if (toupper((unsigned char) sql[pos + i]) !=
+        toupper((unsigned char) prefix[i]))
+      return false;
+  }
+  return true;
+}
+
 int ha_duckdb_select_handler::init_scan()
 {
   DBUG_ENTER("ha_duckdb_select_handler::init_scan");
@@ -244,25 +384,16 @@ int ha_duckdb_select_handler::init_scan()
     GROUP BY ... WITH ROLLUP  →  GROUP BY ROLLUP(...)
   */
   {
-    /* Case-insensitive search for "GROUP BY ... WITH ROLLUP" */
-    std::string upper_sql= sql;
-    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                   ::toupper);
-
-    const char *rollup_str= " WITH ROLLUP";
-    size_t rollup_pos= upper_sql.find(rollup_str);
+    size_t rollup_pos= find_in_code(sql, " WITH ROLLUP");
     if (rollup_pos != std::string::npos)
     {
-      /* Find "GROUP BY" before WITH ROLLUP */
-      const char *group_str= "GROUP BY ";
-      size_t group_pos= upper_sql.rfind(group_str, rollup_pos);
+      size_t group_pos= rfind_in_code(sql, "GROUP BY ", rollup_pos);
       if (group_pos != std::string::npos)
       {
-        size_t cols_start= group_pos + strlen(group_str);
+        size_t cols_start= group_pos + 9;
         std::string cols= sql.substr(cols_start, rollup_pos - cols_start);
         std::string replacement= "GROUP BY ROLLUP(" + cols + ")";
-        sql.replace(group_pos, rollup_pos + strlen(rollup_str) - group_pos,
-                    replacement);
+        sql.replace(group_pos, rollup_pos + 12 - group_pos, replacement);
       }
     }
   }
@@ -272,11 +403,8 @@ int ha_duckdb_select_handler::init_scan()
     MariaDB uses CONVERT(expr, type) syntax, DuckDB uses CAST(expr AS type).
   */
   {
-    std::string upper_sql= sql;
-    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                   ::toupper);
     size_t pos= 0;
-    while ((pos= upper_sql.find("CONVERT(", pos)) != std::string::npos)
+    while ((pos= find_in_code(sql, "CONVERT(", pos)) != std::string::npos)
     {
       /* Find matching closing paren, handling nested parens */
       size_t start= pos + 8; /* after "CONVERT(" */
@@ -303,9 +431,6 @@ int ha_duckdb_select_handler::init_scan()
           type= type.substr(ts, te - ts + 1);
         std::string replacement= "CAST(" + expr + " AS " + type + ")";
         sql.replace(pos, i - pos, replacement);
-        upper_sql= sql;
-        std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                       ::toupper);
       }
       else
         pos++;
@@ -318,11 +443,6 @@ int ha_duckdb_select_handler::init_scan()
     MariaDB outputs these with parens; DuckDB treats them as keywords.
   */
   {
-    std::string upper_sql= sql;
-    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                   ::toupper);
-    /* Replace CURRENT_TIME(...) / CURRENT_DATE(...) / CURRENT_TIMESTAMP(...)
-       with the keyword form (DuckDB doesn't accept these as functions) */
     static const char *time_kws[]= {
         "CURRENT_TIME(", "CURRENT_DATE(", "CURRENT_TIMESTAMP("};
     static const char *time_repls[]= {
@@ -331,15 +451,12 @@ int ha_duckdb_select_handler::init_scan()
     {
       size_t klen= strlen(time_kws[ki]);
       size_t pos= 0;
-      while ((pos= upper_sql.find(time_kws[ki], pos)) != std::string::npos)
+      while ((pos= find_in_code(sql, time_kws[ki], pos)) != std::string::npos)
       {
         /* Find closing paren */
         size_t end= sql.find(')', pos + klen);
         if (end == std::string::npos) { pos++; continue; }
         sql.replace(pos, end + 1 - pos, time_repls[ki]);
-        upper_sql= sql;
-        std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                       ::toupper);
       }
     }
   }
@@ -349,30 +466,29 @@ int ha_duckdb_select_handler::init_scan()
     Then rewrite remaining conditionless JOIN → CROSS JOIN.
   */
   {
-    std::string upper_sql= sql;
-    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                   ::toupper);
     size_t pos= 0;
-    while ((pos= upper_sql.find("STRAIGHT_JOIN", pos)) != std::string::npos)
-    {
+    while ((pos= find_in_code(sql, "STRAIGHT_JOIN", pos)) != std::string::npos)
       sql.replace(pos, 13, "CROSS JOIN");
-      upper_sql= sql;
-      std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                     ::toupper);
-    }
     /*
       Scan for remaining conditionless JOIN (no ON/USING).
     */
     pos= 0;
-    while ((pos= upper_sql.find(" JOIN ", pos)) != std::string::npos)
+    while ((pos= find_in_code(sql, " JOIN ", pos)) != std::string::npos)
     {
       /* Skip LEFT/RIGHT/INNER/CROSS/NATURAL JOIN */
       if (pos >= 6)
       {
-        std::string before= upper_sql.substr(
-            pos > 10 ? pos - 10 : 0,
-            pos - (pos > 10 ? pos - 10 : 0));
-        if (before.find("CROSS") != std::string::npos)
+        size_t check_start= (pos > 10) ? pos - 10 : 0;
+        bool skip= false;
+        for (size_t k= check_start; k < pos; k++)
+        {
+          if (ci_starts_with(sql, k, "CROSS"))
+          {
+            skip= true;
+            break;
+          }
+        }
+        if (skip)
         {
           pos+= 6;
           continue;
@@ -382,33 +498,30 @@ int ha_duckdb_select_handler::init_scan()
       /* Scan forward to find ON/USING or a clause boundary */
       size_t scan= pos + 6;
       bool has_condition= false;
-      while (scan < upper_sql.size())
+      while (scan < sql.size())
       {
         /* Check for ON (as keyword, followed by space) */
-        if (upper_sql.compare(scan, 3, "ON ") == 0 ||
-            upper_sql.compare(scan, 6, "USING ") == 0 ||
-            upper_sql.compare(scan, 6, "USING(") == 0)
+        if (ci_starts_with(sql, scan, "ON ") ||
+            ci_starts_with(sql, scan, "USING ") ||
+            ci_starts_with(sql, scan, "USING("))
         {
           has_condition= true;
           break;
         }
         /* Clause boundary — no ON found, this is conditionless */
-        if (upper_sql.compare(scan, 5, "JOIN ") == 0 ||
-            upper_sql.compare(scan, 6, "WHERE ") == 0 ||
-            upper_sql.compare(scan, 6, "GROUP ") == 0 ||
-            upper_sql.compare(scan, 6, "ORDER ") == 0 ||
-            upper_sql.compare(scan, 6, "LIMIT ") == 0 ||
-            upper_sql.compare(scan, 7, "HAVING ") == 0 ||
-            upper_sql[scan] == ';')
+        if (ci_starts_with(sql, scan, "JOIN ") ||
+            ci_starts_with(sql, scan, "WHERE ") ||
+            ci_starts_with(sql, scan, "GROUP ") ||
+            ci_starts_with(sql, scan, "ORDER ") ||
+            ci_starts_with(sql, scan, "LIMIT ") ||
+            ci_starts_with(sql, scan, "HAVING ") ||
+            sql[scan] == ';')
           break;
         scan++;
       }
       if (!has_condition)
       {
         sql.replace(pos, 6, " CROSS JOIN ");
-        upper_sql= sql;
-        std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                       ::toupper);
         pos+= 12;
       }
       else
@@ -422,43 +535,20 @@ int ha_duckdb_select_handler::init_scan()
     DuckDB:  regexp_matches(expr, pattern) / NOT regexp_matches(expr, pattern)
   */
   {
-    std::string upper_sql= sql;
-    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                   ::toupper);
     /* Replace NOT REGEXP first (longer), then REGEXP */
     size_t pos= 0;
-    while ((pos= upper_sql.find(" NOT REGEXP ", pos)) != std::string::npos)
-    {
+    while ((pos= find_in_code(sql, " NOT REGEXP ", pos)) != std::string::npos)
       sql.replace(pos, 12, " !~ ");
-      upper_sql= sql;
-      std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                     ::toupper);
-    }
     pos= 0;
-    while ((pos= upper_sql.find(" REGEXP ", pos)) != std::string::npos)
-    {
+    while ((pos= find_in_code(sql, " REGEXP ", pos)) != std::string::npos)
       sql.replace(pos, 8, " ~ ");
-      upper_sql= sql;
-      std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                     ::toupper);
-    }
     /* RLIKE is a synonym for REGEXP in MariaDB */
     pos= 0;
-    while ((pos= upper_sql.find(" NOT RLIKE ", pos)) != std::string::npos)
-    {
+    while ((pos= find_in_code(sql, " NOT RLIKE ", pos)) != std::string::npos)
       sql.replace(pos, 11, " !~ ");
-      upper_sql= sql;
-      std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                     ::toupper);
-    }
     pos= 0;
-    while ((pos= upper_sql.find(" RLIKE ", pos)) != std::string::npos)
-    {
+    while ((pos= find_in_code(sql, " RLIKE ", pos)) != std::string::npos)
       sql.replace(pos, 7, " ~ ");
-      upper_sql= sql;
-      std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                     ::toupper);
-    }
   }
 
   /*
@@ -466,22 +556,16 @@ int ha_duckdb_select_handler::init_scan()
     HIGH_PRIORITY, SQL_NO_CACHE, SQL_CACHE, STRAIGHT_JOIN (as hint).
   */
   {
-    std::string upper_sql= sql;
-    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                   ::toupper);
     static const char *hints[]= {
         "HIGH_PRIORITY ", "SQL_NO_CACHE ", "SQL_CACHE ",
         "SQL_BUFFER_RESULT ", "SQL_SMALL_RESULT ", "SQL_BIG_RESULT ",
         "SQL_CALC_FOUND_ROWS "};
     for (auto hint : hints)
     {
-      size_t pos;
       size_t hlen= strlen(hint);
-      while ((pos= upper_sql.find(hint)) != std::string::npos)
-      {
+      size_t pos;
+      while ((pos= find_in_code(sql, hint)) != std::string::npos)
         sql.erase(pos, hlen);
-        upper_sql.erase(pos, hlen);
-      }
     }
   }
 
@@ -490,16 +574,13 @@ int ha_duckdb_select_handler::init_scan()
     IGNORE INDEX(...).
   */
   {
-    std::string upper_sql= sql;
-    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                   ::toupper);
     static const char *idx_hints[]= {
         "FORCE INDEX(", "USE INDEX(", "IGNORE INDEX("};
     for (auto hint : idx_hints)
     {
       size_t hlen= strlen(hint);
       size_t pos= 0;
-      while ((pos= upper_sql.find(hint, pos)) != std::string::npos)
+      while ((pos= find_in_code(sql, hint, pos)) != std::string::npos)
       {
         /* Find matching closing paren */
         size_t end= sql.find(')', pos + hlen);
@@ -514,9 +595,6 @@ int ha_duckdb_select_handler::init_scan()
         while (erase_end < sql.size() && sql[erase_end] == ' ')
           erase_end++;
         sql.erase(erase_start, erase_end - erase_start);
-        upper_sql= sql;
-        std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                       ::toupper);
       }
     }
   }
@@ -526,10 +604,7 @@ int ha_duckdb_select_handler::init_scan()
     MariaDB: LIMIT 2,5   DuckDB: LIMIT 5 OFFSET 2
   */
   {
-    std::string upper_sql= sql;
-    std::transform(upper_sql.begin(), upper_sql.end(), upper_sql.begin(),
-                   ::toupper);
-    size_t lpos= upper_sql.rfind("LIMIT ");
+    size_t lpos= rfind_in_code(sql, "LIMIT ");
     if (lpos != std::string::npos)
     {
       size_t after_limit= lpos + 6;
