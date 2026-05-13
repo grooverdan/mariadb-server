@@ -1842,12 +1842,6 @@ static void close_connections(void)
   }
   /* End of kill phase 2 */
 
-  /*
-    The signal thread can use server resources, e.g. when processing SIGHUP,
-    and it must end gracefully before clean_up()
-  */
-  wait_for_signal_thread_to_end();
-
   DBUG_PRINT("quit",("close_connections thread"));
   DBUG_VOID_RETURN;
 }
@@ -2079,7 +2073,6 @@ static void clean_up(bool print_message)
 
 
 #ifndef EMBEDDED_LIBRARY
-
 /**
   This is mainly needed when running with purify, but it's still nice to
   know that all child threads have died when mysqld exits.
@@ -6041,10 +6034,7 @@ int mysqld_main(int argc, char **argv)
     if (!abort_loop)
       unireg_abort(bootstrap_error);
     else
-    {
-      sleep(2);                                 // Wait for kill
-      exit(0);
-    }
+      goto termination;
   }
 
   /* Copy default global rpl_filter to global_rpl_filter */
@@ -6119,11 +6109,11 @@ int mysqld_main(int argc, char **argv)
   run_main_loop();
 
   /* Shutdown requested */
-  char *user= shutdown_user.load(std::memory_order_relaxed);
-  sql_print_information(ER_DEFAULT(ER_NORMAL_SHUTDOWN), my_progname,
-                        user ? user : "unknown");
-  if (user)
-    my_free(user);
+  {
+    char *user= shutdown_user.load(std::memory_order_relaxed);
+    sql_print_information(ER_DEFAULT(ER_NORMAL_SHUTDOWN), my_progname,
+                          user ? user : "unknown");
+  }
 
 #ifdef WITH_WSREP
   wsrep_shutdown();
@@ -6132,6 +6122,15 @@ int mysqld_main(int argc, char **argv)
 #endif
 
   close_connections();
+
+termination:
+  my_free(shutdown_user.load(std::memory_order_relaxed));
+  /*
+    The signal thread can use server resources, e.g. when processing SIGHUP,
+    and it must end gracefully before clean_up()
+  */
+  wait_for_signal_thread_to_end();
+
   ha_pre_shutdown();
   clean_up(1);
   sd_notify(0, "STATUS=MariaDB server is down");
