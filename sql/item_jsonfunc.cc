@@ -134,8 +134,14 @@ bool st_append_json(String *s,
 /*
   Appends arbitrary String to the JSON string taking charsets in
   consideration.
+
+  returns;
+    true - memory allocation error
+    false otherwise I (including other JSON errors like JSON_ERROR_ILLEGAL_SYMBOL
+    (TODO)
 */
-int st_append_escaped(String *s, const String *a)
+bool __attribute__((warn_unused_result))
+st_append_escaped(String *s, const String *a)
 {
   /*
     In the worst case one character from the 'a' string
@@ -143,17 +149,27 @@ int st_append_escaped(String *s, const String *a)
   */
   int str_len= a->length() * 12 * s->charset()->mbmaxlen /
                a->charset()->mbminlen;
-  if (!s->reserve(str_len, 1024) &&
-      (str_len=
+  if (s->reserve(str_len, 1024))
+    return true;
+  if ((str_len=
          json_escape(a->charset(), (uchar *) a->ptr(), (uchar *)a->end(),
                      s->charset(),
                      (uchar *) s->end(), (uchar *)s->end() + str_len)) > 0)
   {
     s->length(s->length() + str_len);
-    return 0;
+    return false;
   }
 
-  return a->length();
+  switch (str_len)
+  {
+  case JSON_ERROR_OUT_OF_SPACE:
+    return true;
+  case JSON_ERROR_ILLEGAL_SYMBOL:
+    push_warning_printf(current_thd, Sql_condition::WARN_LEVEL_WARN,
+                        ER_JSON_BAD_CHR, ER_THD(current_thd, ER_JSON_BAD_CHR),
+                        0, "st_append_escaped", 0);
+  }
+  return false;
 }
 
 
