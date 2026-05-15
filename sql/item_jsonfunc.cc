@@ -2042,19 +2042,21 @@ String *Item_func_json_array::val_str(String *str)
   str->length(0);
   str->set_charset(collation.collation);
 
-  if (str->append('[') ||
-      ((arg_count > 0) && append_json_value(str, args[0], &tmp_val)))
-    goto err_return;
+  if (str->append('['))
+    goto err_oom_1;
+  if ((arg_count > 0) && append_json_value(str, args[0], &tmp_val))
+    goto err_oom_tmp_val;
 
   for (n_arg=1; n_arg < arg_count; n_arg++)
   {
-    if (str->append(", ", 2) ||
-        append_json_value(str, args[n_arg], &tmp_val))
-      goto err_return;
+    if (str->append(", ", 2))
+      goto err_oom_2;
+    if (append_json_value(str, args[n_arg], &tmp_val))
+      goto err_oom_tmp_val;
   }
 
   if (str->append(']'))
-    goto err_return;
+    goto err_oom_1;
 
   if (result_limit == 0)
     result_limit= current_thd->variables.max_allowed_packet;
@@ -2067,8 +2069,19 @@ String *Item_func_json_array::val_str(String *str)
       ER_THD(current_thd, ER_WARN_ALLOWED_PACKET_OVERFLOWED),
       func_name(), result_limit);
 
-err_return:
-  /*TODO: Launch out of memory error. */
+  null_value= 1;
+  return NULL;
+
+err_oom_tmp_val:
+  /* length might not be accurate - see append_json_value */
+  my_error(ER_OUTOFMEMORY, MYF(0), tmp_val.length());
+  goto err_oom;
+err_oom_2:
+  my_error(ER_OUTOFMEMORY, MYF(0), 2);
+  goto err_oom;
+err_oom_1:
+  my_error(ER_OUTOFMEMORY, MYF(0), 1);
+err_oom:
   null_value= 1;
   return NULL;
 }
