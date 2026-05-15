@@ -2766,8 +2766,17 @@ String *Item_func_json_merge::val_str(String *str)
                     (const uchar *) js2->ptr() + js2->length());
     je2.killed_ptr= (uint32_t *) &thd->killed;
 
-    if (do_merge(str, &je1, &je2))
+    switch (do_merge(str, &je1, &je2))
+    {
+    case 0:
+      break;
+    case 3:
+      /* TODO this length has no accuracy */
+      my_error(ER_OUTOFMEMORY, MYF(0), 1024);
+      goto null_return;
+    default:
       goto error_return;
+    }
 
     {
       /* Swap str and js1. */
