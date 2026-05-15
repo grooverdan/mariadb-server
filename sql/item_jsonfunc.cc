@@ -4565,6 +4565,7 @@ void Item_func_json_objectagg::clear()
 }
 
 
+/* return 1 if OOM */
 bool Item_func_json_objectagg::add()
 {
   StringBuffer<MAX_FIELD_WIDTH> buf;
