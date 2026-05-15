@@ -1667,7 +1667,8 @@ static void break_connect_loop()
   abort_loop= 1;
 
 #if defined(_WIN32)
-  mysqld_win_initiate_shutdown();
+  if (!opt_bootstrap)
+    mysqld_win_initiate_shutdown();
 #else
   mysql_mutex_lock(&LOCK_start_thread);
   if (termination_event_fd >= 0)
