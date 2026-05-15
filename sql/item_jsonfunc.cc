@@ -2117,6 +2117,7 @@ String *Item_func_json_array_append::val_str(String *str)
   uint n_arg, n_path;
   size_t str_rest_len;
   const uchar *ar_end;
+  int alloc_size;
   THD *thd= current_thd;
 
   DBUG_ASSERT(fixed());
@@ -2163,7 +2164,7 @@ String *Item_func_json_array_append::val_str(String *str)
     str->length(0);
     str->set_charset(js->charset());
     if (str->reserve(js->length() + 8, 1024))
-      goto return_null; /* Out of memory. */
+      goto err_oom_1k;
 
     if (je.value_type == JSON_VALUE_ARRAY)
     {
@@ -2177,10 +2178,10 @@ String *Item_func_json_array_append::val_str(String *str)
       if (n_items)
         str->append(", ", 2);
       if (append_json_value(str, args[n_arg+1], &tmp_val))
-        goto return_null; /* Out of memory. */
+        goto err_oom_tmp_val;
 
       if (str->reserve(str_rest_len, 1024))
-        goto return_null; /* Out of memory. */
+        goto err_oom_1k;
       str->q_append((const char *) ar_end, str_rest_len);
     }
     else
@@ -2200,14 +2201,20 @@ String *Item_func_json_array_append::val_str(String *str)
       else
         c_to= je.value_end;
 
-      if (str->append('[') ||
-          str->append((const char *) c_from, c_to - c_from) ||
-          str->append(", ", 2) ||
-          append_json_value(str, args[n_arg+1], &tmp_val) ||
-          str->append(']') ||
-          str->append((const char *) je.s.c_str,
-                      js->end() - (const char *) je.s.c_str))
-        goto return_null; /* Out of memory. */
+      if (str->append('['))
+	goto err_oom_1;
+      alloc_size= c_to - c_from;
+      if (str->append((const char *) c_from, alloc_size))
+	goto err_oom_x;
+      if (str->append(", ", 2))
+	goto err_oom_2;
+      if (append_json_value(str, args[n_arg+1], &tmp_val))
+	goto err_oom_tmp_val;
+      if (str->append(']'))
+	goto err_oom_1;
+      alloc_size= js->end() - (const char *) je.s.c_str;
+      if (str->append((const char *) je.s.c_str, alloc_size))
+        goto err_oom_x;
     }
     {
       /* Swap str and js. */
@@ -2237,6 +2244,25 @@ js_error:
   thd->check_killed(); // to get the error message right
 
 return_null:
+  null_value= 1;
+  return 0;
+
+err_oom_x:
+  my_error(ER_OUTOFMEMORY, MYF(0), alloc_size);
+  goto err_oom;
+err_oom_tmp_val:
+  /* length might not be accurate - see append_json_value */
+  my_error(ER_OUTOFMEMORY, MYF(0), tmp_val.length());
+  goto err_oom;
+err_oom_1k:
+  my_error(ER_OUTOFMEMORY, MYF(0), 1024);
+  goto err_oom;
+err_oom_2:
+  my_error(ER_OUTOFMEMORY, MYF(0), 2);
+  goto err_oom;
+err_oom_1:
+  my_error(ER_OUTOFMEMORY, MYF(0), 1);
+err_oom:
   null_value= 1;
   return 0;
 }
