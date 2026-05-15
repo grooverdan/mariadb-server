@@ -2273,6 +2273,7 @@ String *Item_func_json_array_insert::val_str(String *str)
   json_engine_t je;
   String *js= args[0]->val_json(&tmp_js);
   uint n_arg, n_path;
+  int size;
   THD *thd= current_thd;
 
   JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
@@ -2371,67 +2372,36 @@ String *Item_func_json_array_insert::val_str(String *str)
     str->set_charset(js->charset());
     if (item_pos)
     {
-      my_ptrdiff_t size= item_pos - js->ptr();
+      size= (int) (item_pos - js->ptr());
       if (append_simple(str, js->ptr(), size))
-      {
-        my_error(ER_OUTOFMEMORY, MYF(0), (int) size);
-        goto return_null; /* Out of memory. */
-      }
+        goto err_oom_x;
       if (n_item > 0 && str->append(" ", 1))
-      {
-        my_error(ER_OUTOFMEMORY, MYF(0), 1);
-        goto return_null; /* Out of memory. */
-      }
+        goto err_oom_1;
       if (append_json_value(str, args[n_arg+1], &tmp_val))
-      {
-        my_error(ER_OUTOFMEMORY, MYF(0), tmp_val.length());
-        goto return_null; /* Out of memory. */
-      }
+        goto err_oom_tmp_val;
       if (str->append(",", 1))
-      {
-        my_error(ER_OUTOFMEMORY, MYF(0), 1);
-        goto return_null; /* Out of memory. */
-      }
+        goto err_oom_1;
       if (n_item == 0 && str->append(" ", 1))
-      {
-        my_error(ER_OUTOFMEMORY, MYF(0), 1);
-        goto return_null; /* Out of memory. */
-      }
+        goto err_oom_1;
       size= js->end() - item_pos;
       if (append_simple(str, item_pos, size))
-      {
-        my_error(ER_OUTOFMEMORY, MYF(0), (int) size);
-        goto return_null; /* Out of memory. */
-      }
+	goto err_oom_x;
     }
     else
     {
-      my_ptrdiff_t size;
       /* Insert position wasn't found - append to the array. */
       DBUG_ASSERT(je.state == JST_ARRAY_END);
       item_pos= (const char *) (je.s.c_str - je.sav_c_len);
       size= item_pos - js->ptr();
       if (append_simple(str, js->ptr(), size))
-      {
-        my_error(ER_OUTOFMEMORY, MYF(0), (int) size);
-        goto return_null; /* Out of memory. */
-      }
+        goto err_oom_x;
       if (n_item > 0 && str->append(", ", 2))
-      {
-        my_error(ER_OUTOFMEMORY, MYF(0), 2);
-        goto return_null; /* Out of memory. */
-      }
+        goto err_oom_2;
       if (append_json_value(str, args[n_arg+1], &tmp_val))
-      {
-        my_error(ER_OUTOFMEMORY, MYF(0), tmp_val.length());
-        goto return_null; /* Out of memory. */
-      }
+        goto err_oom_tmp_val;
       size= js->end() - item_pos;
       if (append_simple(str, item_pos, size))
-      {
-         my_error(ER_OUTOFMEMORY, MYF(0), (int) size);
-         goto return_null; /* Out of memory. */
-      }
+         goto err_oom_x;
     }
 
     {
@@ -2459,8 +2429,24 @@ String *Item_func_json_array_insert::val_str(String *str)
 
 js_error:
   report_json_error(js, &je, 0);
-return_null:
   thd->check_killed(); // to get the error message right
+return_null:
+  null_value= 1;
+  return 0;
+
+err_oom_x:
+  my_error(ER_OUTOFMEMORY, MYF(0), size);
+  goto err_oom;
+err_oom_tmp_val:
+  /* length might not be accurate - see append_json_value */
+  my_error(ER_OUTOFMEMORY, MYF(0), tmp_val.length());
+  goto err_oom;
+err_oom_2:
+  my_error(ER_OUTOFMEMORY, MYF(0), 2);
+  goto err_oom;
+err_oom_1:
+  my_error(ER_OUTOFMEMORY, MYF(0), 1);
+err_oom:
   null_value= 1;
   return 0;
 }
