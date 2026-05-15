@@ -1154,7 +1154,10 @@ String *Item_func_json_extract::read_json(String *str,
     str->length(0);
 
     if (possible_multiple_values && str->append('['))
-      goto error;
+    {
+      v_len= 1;
+      goto error_oom;
+    }
   }
 
   json_get_path_start(&je, js->charset(),(const uchar *) js->ptr(),
@@ -1199,16 +1202,16 @@ String *Item_func_json_extract::read_json(String *str,
     }
 
     if ((not_first_value && str->append(", ", 2)))
-      goto error;
+      goto error_oom_2;
     while(count_path)
     {
       if (str->append((const char *) value, v_len))
-        goto error;
+        goto error_oom;
       count_path--;
       if (count_path)
       {
         if (str->append(", ", 2))
-          goto error;
+          goto error_oom_2;
       }
     }
 
@@ -1232,7 +1235,10 @@ String *Item_func_json_extract::read_json(String *str,
   }
 
   if (possible_multiple_values && str->append(']'))
-    goto error; /* Out of memory. */
+  {
+    v_len=1;
+    goto error_oom;
+  }
 
   js= str;
   json_scan_start(&je, js->charset(),(const uchar *) js->ptr(),
@@ -1246,6 +1252,13 @@ return_ok:
 error:
   report_json_error(js, &je, 0);
 return_null:
+  null_value= 1;
+  return 0;
+
+error_oom_2:
+  v_len= 2;
+error_oom:
+  my_error(ER_OUTOFMEMORY, MYF(0), (int) v_len);
   null_value= 1;
   return 0;
 }
