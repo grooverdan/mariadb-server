@@ -129,7 +129,7 @@ void opt_trace_print_expanded_query(THD *thd, SELECT_LEX *select_lex,
   */
 
   StringBuffer<1024> escaped_str(system_charset_info);
-  if (st_append_escaped(&escaped_str, &str) == 0)
+  if (st_append_escaped(&escaped_str, &str) == 0 && escaped_str.length() > 0)
   {
     writer->add("expanded_query", escaped_str.c_ptr_safe(), 
                                   escaped_str.length());
