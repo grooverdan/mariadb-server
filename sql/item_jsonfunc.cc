@@ -1899,7 +1899,7 @@ bool is_json_type(const Item *item)
 }
 
 
-static int append_json_value(String *str, Item *item, String *tmp_val)
+static bool append_json_value(String *str, Item *item, String *tmp_val)
 {
   if (item->type_handler()->is_bool_type())
   {
