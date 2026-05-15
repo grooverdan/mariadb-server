@@ -933,6 +933,7 @@ bool my_yyoverflow(short **a, YYSTYPE **b, size_t *yystacksize);
 %token  <kwd>  LOCKS_SYM
 %token  <kwd>  LOGFILE_SYM
 %token  <kwd>  LOGS_SYM
+%token  <kwd>  LOG_SYM
 %token  <kwd>  MASTER_CONNECT_RETRY_SYM
 %token  <kwd>  MASTER_DELAY_SYM
 %token  <kwd>  MASTER_GTID_POS_SYM
@@ -14546,6 +14547,10 @@ show_param:
           {
             Lex->sql_command = SQLCOM_SHOW_BINLOG_STAT;
           }
+        | BINARY LOG_SYM STATUS_SYM
+          {
+            Lex->sql_command = SQLCOM_SHOW_BINLOG_STAT;
+          }
         | ALL SLAVES STATUS_SYM
           {
             LEX *lex= Lex;
@@ -16563,6 +16568,7 @@ keyword_func_sp_var_and_label:
         | LIST_SYM
         | LOCKED_SYM
         | LOCKS_SYM
+        | LOG_SYM
         | LOGFILE_SYM
         | LOGS_SYM
         | MAX_ROWS
