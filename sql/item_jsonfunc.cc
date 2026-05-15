@@ -4560,16 +4560,23 @@ bool Item_func_json_objectagg::add()
 
   null_value= 0;
   if (result.length() > 1)
-    result.append(STRING_WITH_LEN(", "));
+  {
+    if (result.append(STRING_WITH_LEN(", ")))
+      return true;
+  }
 
-  result.append('"');
-  st_append_escaped(&result,key);
-  result.append(STRING_WITH_LEN("\":"));
+  if (result.append('"'))
+    return true;
+  if (st_append_escaped(&result,key))
+    return true;
+  if (result.append(STRING_WITH_LEN("\":")))
+    return true;
 
   buf.length(0);
-  append_json_value(&result, args[1], &buf);
+  if (append_json_value(&result, args[1], &buf))
+    return true;
 
-  return 0;
+  return false;
 }
 
 
