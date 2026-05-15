@@ -387,7 +387,9 @@ static void store_json_in_field(Field *f, const json_engine_t *je)
   default:
     break;
   };
-  st_append_json(&res_tmp, je->s.cs, je->value, je->value_len);
+  if (st_append_json(&res_tmp, je->s.cs, je->value, je->value_len))
+    my_error(ER_OUT_OF_RESOURCES, MYF(0), je->value_len);
+
   f->store((const char *) res_tmp.ptr(), (uint32) res_tmp.length(), je->s.cs);
 }
 

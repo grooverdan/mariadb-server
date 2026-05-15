@@ -35,8 +35,9 @@ extern "C"				/* Bug in BSDI include file */
 #include <cmath>
 
 
-extern bool st_append_json(String *s,
-              CHARSET_INFO *json_cs, const uchar *js, uint js_len);
+bool __attribute__((warn_unused_result)) st_append_json(String *s,
+  CHARSET_INFO *json_cs, const uchar *js, uint js_len);
+
 class Item_func :public Item_func_or_sum
 {
   void sync_with_sum_func_and_with_field(List<Item> &list);
