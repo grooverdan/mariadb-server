@@ -2208,9 +2208,11 @@ String *Item_func_json_array_append::val_str(String *str)
 
 js_error:
   report_json_error(js, &je, 0);
-  thd->check_killed(); // to get the error message right
 
 return_null:
+  /* intentionally after return_null label */
+  thd->check_killed();
+
   null_value= 1;
   return 0;
 }
