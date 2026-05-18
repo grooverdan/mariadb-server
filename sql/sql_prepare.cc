@@ -2280,7 +2280,6 @@ static bool mysql_test_insert_select(Prepared_statement *stmt,
 {
   int res;
   LEX *lex= stmt->lex;
-  TABLE_LIST *first_local_table;
 
   if (tables->table)
   {
@@ -2292,15 +2291,13 @@ static bool mysql_test_insert_select(Prepared_statement *stmt,
     return 1;
 
   /* store it, because mysql_insert_select_prepare_tester change it */
-  first_local_table= lex->first_select_lex()->table_list.first;
-  DBUG_ASSERT(first_local_table != 0);
+  lex->prepare_insert_table1= lex->first_select_lex()->table_list.first;
+  DBUG_ASSERT(lex->prepare_insert_table1 != 0);
 
   res=
     select_like_stmt_test_with_open(stmt, tables,
                                     &mysql_insert_select_prepare_tester,
                                     OPTION_SETUP_TABLES_DONE);
-  /* revert changes  made by mysql_insert_select_prepare_tester */
-  lex->first_select_lex()->table_list.first= first_local_table;
   return res;
 }
 

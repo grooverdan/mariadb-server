@@ -21915,7 +21915,8 @@ static void test_mdev_27013()
     "SELECT * FROM mdev27013",
     "SELECT c1,c2 FROM mdev27013",
     "INSERT INTO mdev27013 (c1) VALUES('tweet') RETURNING *",
-    "REPLACE INTO mdev27013 SET c2='growl' RETURNING c1, c2",
+    "REPLACE INTO mdev27013 SET c1='meow',c2='growl' RETURNING c1, c2",
+    "REPLACE INTO mdev27013_2 SELECT * FROM mdev27013 WHERE c1='meow' RETURNING (SELECT concat(c1,d1) FROM mdev27013_2 WHERE d2='growl') as a1,d1",
     "INSERT INTO mdev27013 SELECT CONCAT('g', seq) as c1, 'b' as c2 FROM seq_1_to_3 RETURNING *",
     "REPLACE INTO mdev27013 SELECT CONCAT('h', seq) as c1, 'b' as c2 FROM seq_1_to_3 RETURNING *",
     "DELETE FROM mdev27013 RETURNING *"
@@ -21928,10 +21929,15 @@ static void test_mdev_27013()
     ")");
   myquery(rc);
 
+  rc = mysql_query(mysql, "CREATE TABLE mdev27013_2("
+          "d1  char(36), d2 char(36)"
+    ")");
+  myquery(rc);
+
   stmt = mysql_stmt_init(mysql);
   check_stmt(stmt);
 
-  for (int com= 0; com < 7; com++)
+  for (int com= 0; com < 8; com++)
   {
     rc = mariadb_stmt_execute_direct(stmt, commands[com], -1);
 
