@@ -40,7 +40,7 @@
 */
 
 /* on merge conflict, bump to a higher version again */
-#define VER "10.19"
+#define VER "10.20"
 
 /**
   First mysql version supporting sequences.
@@ -1428,7 +1428,6 @@ static void DB_error(MYSQL *mysql_arg, const char *when)
 }
 
 
-
 /*
   Prints out an error message and kills the process.
 
@@ -1491,7 +1490,6 @@ static void maybe_die(int error_num, const char* fmt_reason, ...)
 }
 
 
-
 /*
   Sends a query to server, optionally reads result, prints error message if
   some.
@@ -1502,24 +1500,61 @@ static void maybe_die(int error_num, const char* fmt_reason, ...)
     res             if non zero, result will be put there with
                     mysql_store_result()
     query           query to send to server
+    no_parse_error  Do not print error message for parse errors
 
   RETURN VALUES
     0               query sending and (if res!=0) result reading went ok
     1               error
+    -1              Syntax/parse error (for retry code)
 */
 
 static int mysql_query_with_error_report(MYSQL *mysql_con, MYSQL_RES **res,
-                                         const char *query)
+                                         const char *query,
+                                         bool no_parse_error = false)
 {
   DBUG_ASSERT(mysql_con);
   if (mysql_query(mysql_con, query) ||
       (res && !((*res)= mysql_store_result(mysql_con))))
   {
+    if (no_parse_error && mysql_errno(mysql_con) == ER_PARSE_ERROR)
+      return -1;
     maybe_die(EX_MYSQLERR, "Couldn't execute '%s': %s (%d)",
-            query, mysql_error(mysql_con), mysql_errno(mysql_con));
+              query, mysql_error(mysql_con), mysql_errno(mysql_con));
     return 1;
   }
   return 0;
+}
+
+
+/*
+  Sends a query to server. In case of parse error try another syntax
+*/
+
+static int mysql_query_with_retry(MYSQL *mysql_con, MYSQL_RES **res,
+                                  const char *query1, const char *query2)
+{
+  int error;
+  if ((error= mysql_query_with_error_report(mysql_con, res, query1, 1)) == -1)
+    error= mysql_query_with_error_report(mysql_con, res, query2, 0);
+  return error;
+}
+
+/*
+ Get slave status from server.
+
+ Note that MySQL server does not support 'SHOW ALL' and
+ multi_source should thus not be set when dumping from MySQL
+*/
+
+static int show_slave_status(MYSQL *mysql_con, MYSQL_RES **res)
+{
+  return (mysql_query_with_retry(mysql_con, res,
+                                 (multi_source ?
+                                  "SHOW ALL REPLICAS STATUS" :
+                                  "SHOW REPLICA STATUS"),
+                                 (multi_source ?
+                                  "SHOW ALL SLAVES STATUS" :
+                                  "SHOW SLAVE STATUS")));
 }
 
 
@@ -6389,8 +6424,9 @@ static int do_show_master_status(MYSQL *mysql_con, int consistent_binlog_pos,
   }
   else
   {
-    if (mysql_query_with_error_report(mysql_con, &master,
-                                      "SHOW MASTER STATUS"))
+    if (mysql_query_with_retry(mysql_con, &master,
+                               "SHOW MASTER STATUS",
+                               "SHOW BINARY LOG STATUS"))
       return 1;
 
     row= mysql_fetch_row(master);
@@ -6477,10 +6513,7 @@ static int do_stop_slave_sql(MYSQL *mysql_con)
     !slave_status_res // do_stop_slave_sql() should only be called once
   );
 
-  if (mysql_query_with_error_report(mysql_con, &slave_status_res,
-                                    multi_source ?
-                                    "SHOW ALL SLAVES STATUS" :
-                                    "SHOW SLAVE STATUS"))
+  if (show_slave_status(mysql_con, &slave_status_res))
     return(1);
 
   /* Loop over all slaves */
@@ -6493,7 +6526,8 @@ static int do_stop_slave_sql(MYSQL *mysql_con)
       {
         char query[160];
         if (multi_source)
-          snprintf(query, sizeof(query), "STOP SLAVE '%.80s' SQL_THREAD", row[0]);
+          snprintf(query, sizeof(query), "STOP SLAVE '%.80s' SQL_THREAD",
+                   row[0]);
         else
           strmov(query, "STOP SLAVE SQL_THREAD");
 
@@ -6542,10 +6576,7 @@ static int do_show_slave_status(MYSQL *mysql_con, int have_mariadb_gtid,
   const char *gtid_comment_prefix= (use_gtid ? comment_prefix : "-- ");
   const char *nogtid_comment_prefix= (!use_gtid ? comment_prefix : "-- ");
 
-  if (mysql_query_with_error_report(mysql_con, &slave,
-                                    multi_source ?
-                                    "SHOW ALL SLAVES STATUS" :
-                                    "SHOW SLAVE STATUS"))
+  if (show_slave_status(mysql_con, &slave))
   {
     if (!ignore_errors)
     {
@@ -6705,8 +6736,9 @@ static int get_bin_log_name(MYSQL *mysql_con,
   MYSQL_RES *res;
   MYSQL_ROW row;
 
-  if (mysql_query(mysql_con, "SHOW MASTER STATUS") ||
-      !(res= mysql_store_result(mysql)))
+  if (mysql_query_with_retry(mysql_con, &res,
+                             "SHOW MASTER STATUS",
+                             "SHOW BINARY LOG STATUS"))
     return 1;
 
   if (!(row= mysql_fetch_row(res)))

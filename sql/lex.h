@@ -355,6 +355,7 @@ SYMBOL symbols[] = {
   { "LOCK",		SYM(LOCK_SYM)},
   { "LOCKED",		SYM(LOCKED_SYM)},
   { "LOCKS",		SYM(LOCKS_SYM)},
+  { "LOG",		SYM(LOG_SYM)},
   { "LOGFILE",		SYM(LOGFILE_SYM)},
   { "LOGS",		SYM(LOGS_SYM)},
   { "LONG",		SYM(LONG_SYM)},
