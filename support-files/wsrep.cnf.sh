@@ -8,7 +8,7 @@
 # The rest of defaults should work out of the box.
 
 ##
-## mysqld options _MANDATORY_ for correct opration of the cluster
+## mariadbd options _MANDATORY_ for correct operation of the cluster
 ##
 [mysqld]
 
