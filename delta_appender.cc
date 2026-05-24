@@ -29,7 +29,7 @@
 #include "duckdb_config.h"
 #include "ddl_convertor.h"
 #include "duckdb_timezone.h"
-#include "ha_duckdb.h"
+#include "duckdb_handler_errors.h"
 #include "duckdb_error.h"
 #include "tztime.h"
 #include "my_decimal.h"

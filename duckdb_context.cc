@@ -29,7 +29,7 @@
 #include "duckdb_charset_collation.h"
 #include "duckdb_config.h"
 #include "duckdb_types.h"
-#include "ha_duckdb.h"
+#include "duckdb_handler_errors.h"
 #include "duckdb_timezone.h"
 
 #include <vector>
