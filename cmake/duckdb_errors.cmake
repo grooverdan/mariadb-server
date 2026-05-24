@@ -7,7 +7,7 @@
 
 SET(DUCKDB_ERRORS_TXT "${CMAKE_CURRENT_SOURCE_DIR}/duckdb_errors.txt")
 SET(ERRMSG_FILE       "${PROJECT_SOURCE_DIR}/sql/share/errmsg-utf8.txt")
-SET(DUCKDB_ERROR_H    "${CMAKE_CURRENT_SOURCE_DIR}/duckdb_error.h")
+SET(DUCKDB_ERROR_H    "${CMAKE_CURRENT_SOURCE_DIR}/common/duckdb_error.h")
 SET(MYSQLD_ERROR_H    "${CMAKE_BINARY_DIR}/include/mysqld_error.h")
 
 # -- Step 1: append our errors to errmsg-utf8.txt (once, at configure time) ---

@@ -1,5 +1,4 @@
 /*
-  Copyright (c) 2025, Alibaba and/or its affiliates.
   Copyright (c) 2026, MariaDB Foundation.
   Copyright (c) 2026, Roman Nozdrin <drrtuy@gmail.com>
   Copyright (c) 2026, Leonid Fedorov.

@@ -1,50 +1,47 @@
 INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/cmake/duckdb.cmake)
 INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/cmake/duckdb_errors.cmake)
+INCLUDE(${CMAKE_CURRENT_SOURCE_DIR}/cmake/duckdb_target_setup.cmake)
 
-SET(DUCKDB_SOURCES
+# Provide MariaDB server include paths to sub-libraries.
+# MYSQL_ADD_PLUGIN normally does this, but it runs after ADD_SUBDIRECTORY.
+INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/include
+                    ${CMAKE_SOURCE_DIR}/sql
+                    ${CMAKE_BINARY_DIR}/include
+                    ${PCRE_INCLUDE_DIRS}
+                    ${SSL_INCLUDE_DIRS}
+                    ${ZLIB_INCLUDE_DIRS})
+
+# Build sub-libraries.
+ADD_SUBDIRECTORY(common)
+ADD_SUBDIRECTORY(convertor)
+ADD_SUBDIRECTORY(runtime)
+
+# GenError must run before duckdb_error.h is generated.
+ADD_DEPENDENCIES(duckdb_error_h GenError)
+
+# Plugin sources (handler layer + UDFs whose extern "C" symbols must be
+# in the final .so for dlsym() loading).
+SET(DUCKDB_PLUGIN_SOURCES
   ha_duckdb.cc
-  duckdb_manager.cc
-  duckdb_types.cc
-  ddl_convertor.cc
-  dml_convertor.cc
-  duckdb_select.cc
-  duckdb_context.cc
-  duckdb_query.cc
-  delta_appender.cc
-  duckdb_log.cc
-  duckdb_config.cc
-  duckdb_charset_collation.cc
-  duckdb_timezone.cc
   ha_duckdb_pushdown.cc
-  cross_engine_scan.cc
   duckdb_udf.cc
-  duckdb_mysql_compat.cc
 )
 
-MYSQL_ADD_PLUGIN(duckdb ${DUCKDB_SOURCES}
+MYSQL_ADD_PLUGIN(duckdb ${DUCKDB_PLUGIN_SOURCES}
   STORAGE_ENGINE
   MODULE_ONLY
   COMPONENT duckdb-engine
   CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/duckdb.cnf
-  LINK_LIBRARIES ${DUCKDB_LIBRARY}
+  LINK_LIBRARIES duckdb_runtime duckdb_convertor duckdb_common ${DUCKDB_LIBRARY}
 )
 
-# libduckdb_bundle.a is built without debug STL wrappers.
-# Strip the flags that MariaDB's debug build adds so that our plugin's
-# object files see the same STL container layout as the library.
 IF(TARGET duckdb)
-  ADD_DEPENDENCIES(duckdb_error_h GenError)
-  ADD_DEPENDENCIES(duckdb duckdb_error_h)
-  # DuckDB headers and plugin code require C++17.
-  SET_TARGET_PROPERTIES(duckdb PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-  # libduckdb_bundle.a is built without debug STL wrappers.
-  # -U unconditionally undefines the macro no matter how it was inherited
-  # (CMAKE_CXX_FLAGS_DEBUG, directory properties, generator expressions, etc.).
-  # Mismatched _GLIBCXX_DEBUG changes sizeof(std::vector) and friends → SIGSEGV.
-  TARGET_COMPILE_OPTIONS(duckdb PRIVATE -U_GLIBCXX_DEBUG -U_GLIBCXX_ASSERTIONS)
-  IF(DUCKDB_WERROR)
-    TARGET_COMPILE_OPTIONS(duckdb PRIVATE -Werror)
-  ENDIF()
+  duckdb_setup_target(duckdb)
+  TARGET_INCLUDE_DIRECTORIES(duckdb PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/common
+    ${CMAKE_CURRENT_SOURCE_DIR}/convertor
+    ${CMAKE_CURRENT_SOURCE_DIR}/runtime
+  )
 ENDIF()
 
 IF(TARGET duckdb)

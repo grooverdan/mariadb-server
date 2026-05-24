@@ -1,5 +1,4 @@
 /*
-  Copyright (c) 2025, Alibaba and/or its affiliates.
   Copyright (c) 2026, MariaDB Foundation.
   Copyright (c) 2026, Roman Nozdrin <drrtuy@gmail.com>
   Copyright (c) 2026, Leonid Fedorov.
@@ -20,39 +19,25 @@
 
 #pragma once
 
+#include <cstdint>
+#include <memory>
+#include <string>
+
 #include "duckdb.hpp"
-#include "duckdb/common/types.hpp"
-#include "duckdb/main/appender.hpp"
 #include "duckdb/main/connection.hpp"
-#include "duckdb/main/table_description.hpp"
+
+class THD;
 
 namespace myduck
 {
 
-constexpr char DUCKDB_FILE_NAME[]= "duckdb.db";
-constexpr char DUCKDB_DEFAULT_TMP_NAME[]= "duckdb_tmp";
+duckdb::unique_ptr<duckdb::MaterializedQueryResult>
+duckdb_query(duckdb::Connection &connection, const std::string &query);
 
-class DuckdbManager
-{
-public:
-  DuckdbManager(const DuckdbManager &)= delete;
-  DuckdbManager &operator=(const DuckdbManager &)= delete;
+duckdb::unique_ptr<duckdb::MaterializedQueryResult>
+duckdb_query(THD *thd, const std::string &query, bool need_config= true);
 
-  static bool CreateInstance();
-  static void Cleanup();
-  static inline DuckdbManager &Get();
-  static std::shared_ptr<duckdb::Connection> CreateConnection();
-
-private:
-  static DuckdbManager *m_instance;
-
-  DuckdbManager();
-  ~DuckdbManager();
-
-  bool Initialize();
-
-  duckdb::DuckDB *m_database= nullptr;
-  std::mutex m_mutex;
-};
+duckdb::unique_ptr<duckdb::MaterializedQueryResult>
+duckdb_query(const std::string &query);
 
 } // namespace myduck

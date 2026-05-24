@@ -1,5 +1,4 @@
 /*
-  Copyright (c) 2025, Alibaba and/or its affiliates.
   Copyright (c) 2026, MariaDB Foundation.
   Copyright (c) 2026, Roman Nozdrin <drrtuy@gmail.com>
   Copyright (c) 2026, Leonid Fedorov.
@@ -18,27 +17,37 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1335 USA
 */
 
-#ifndef DUCKDB_LOG_H
-#define DUCKDB_LOG_H
+#ifndef DUCKDB_TIMEZONE_H
+#define DUCKDB_TIMEZONE_H
 
-#include <my_global.h>
+#include <map>
+#include <string>
+
+class THD;
 
 namespace myduck
 {
-extern ulonglong duckdb_log_options;
+constexpr long days_at_timestart= 719528;
 
-enum enum_duckdb_log_types
+class TimeZoneOffsetHelper
 {
-  DUCKDB_QUERY,
-  DUCKDB_QUERY_RESULT
+public:
+  static void init_timezone();
+
+  static std::string get_name_by_offset(int64_t offset, std::string &warn_msg);
+
+private:
+  static void add_timezone(int64_t offset, const std::string &name);
+  static std::map<int64_t, std::string> timezone_offset_map;
 };
 
-extern const char *duckdb_log_types[];
-extern TYPELIB log_options_typelib;
+/** Get duckdb timezone name for current thread.
+  @param thd   THD
+  @param warn_msg  output warning message
+  @return timezone name suitable for DuckDB
+*/
+std::string get_timezone_according_thd(THD *thd, std::string &warn_msg);
 
-#define LOG_DUCKDB_QUERY (1ULL << myduck::enum_duckdb_log_types::DUCKDB_QUERY)
-#define LOG_DUCKDB_QUERY_RESULT                                               \
-  (1ULL << myduck::enum_duckdb_log_types::DUCKDB_QUERY_RESULT)
 } // namespace myduck
 
-#endif // DUCKDB_LOG_H
+#endif // DUCKDB_TIMEZONE_H

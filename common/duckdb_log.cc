@@ -1,5 +1,4 @@
 /*
-  Copyright (c) 2025, Alibaba and/or its affiliates.
   Copyright (c) 2026, MariaDB Foundation.
   Copyright (c) 2026, Roman Nozdrin <drrtuy@gmail.com>
   Copyright (c) 2026, Leonid Fedorov.
@@ -18,27 +17,19 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1335 USA
 */
 
-#pragma once
+#include "duckdb_log.h"
+#include "typelib.h"
 
-#include <cstdint>
-#include <memory>
-#include <string>
-
-#include "duckdb.hpp"
-#include "duckdb/main/connection.hpp"
-
-class THD;
+#include <my_global.h>
 
 namespace myduck
 {
 
-duckdb::unique_ptr<duckdb::MaterializedQueryResult>
-duckdb_query(duckdb::Connection &connection, const std::string &query);
+ulonglong duckdb_log_options= 0;
 
-duckdb::unique_ptr<duckdb::MaterializedQueryResult>
-duckdb_query(THD *thd, const std::string &query, bool need_config= true);
+const char *duckdb_log_types[]= {"DUCKDB_QUERY", "DUCKDB_QUERY_RESULT",
+                                 nullptr};
 
-duckdb::unique_ptr<duckdb::MaterializedQueryResult>
-duckdb_query(const std::string &query);
+TYPELIB log_options_typelib= CREATE_TYPELIB_FOR(duckdb_log_types);
 
 } // namespace myduck

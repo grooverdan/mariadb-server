@@ -1,4 +1,3 @@
-# Copyright (c) 2025, Alibaba and/or its affiliates.
 # Copyright (c) 2026, MariaDB Foundation.
 #
 # This program is free software; you can redistribute it and/or modify

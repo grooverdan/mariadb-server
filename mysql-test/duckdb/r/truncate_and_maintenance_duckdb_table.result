@@ -23,7 +23,7 @@ Table	Op	Msg_type	Msg_text
 test.t	optimize	note	The storage engine for the table doesn't support optimize
 REPAIR TABLE t;
 Table	Op	Msg_type	Msg_text
-test.t	repair	note	The storage engine for the table doesn't support repair
+test.t	repair	status	OK
 #
 # 3) TRUNCATE TABLE
 #

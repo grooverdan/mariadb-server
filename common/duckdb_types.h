@@ -1,5 +1,4 @@
 /*
-  Copyright (c) 2025, Alibaba and/or its affiliates.
   Copyright (c) 2026, MariaDB Foundation.
   Copyright (c) 2026, Roman Nozdrin <drrtuy@gmail.com>
   Copyright (c) 2026, Leonid Fedorov.
@@ -20,18 +19,26 @@
 
 #pragma once
 
-#include <sys/types.h>
+#include <string>
 
-#include <my_global.h>
-#include "my_base.h"
-#include "field.h"
-#include "sql_class.h"
+/**
+  Utility class to parse a full path like "./db/table" into db_name and
+  table_name components. Handles escape characters in names.
+*/
+class DatabaseTableNames
+{
+public:
+  DatabaseTableNames(const char *name);
+  std::string db_name;
+  std::string table_name;
+};
 
-#undef UNKNOWN
-
-#include "duckdb.hpp"
-
-extern handlerton *duckdb_hton;
-
-void store_duckdb_field_in_mysql_format(Field *field, duckdb::Value &value,
-                                        THD *thd);
+/**
+  Utility class to extract the database name from a path like "./db/".
+*/
+class Databasename
+{
+public:
+  Databasename(const char *path_name);
+  std::string name;
+};

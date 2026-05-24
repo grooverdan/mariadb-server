@@ -1,5 +1,4 @@
 /*
-  Copyright (c) 2025, Alibaba and/or its affiliates.
   Copyright (c) 2026, MariaDB Foundation.
   Copyright (c) 2026, Roman Nozdrin <drrtuy@gmail.com>
   Copyright (c) 2026, Leonid Fedorov.
@@ -18,19 +17,41 @@
   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1335 USA
 */
 
-#include "duckdb_log.h"
-#include "typelib.h"
+#pragma once
 
-#include <my_global.h>
+#include "duckdb.hpp"
+#include "duckdb/common/types.hpp"
+#include "duckdb/main/appender.hpp"
+#include "duckdb/main/connection.hpp"
+#include "duckdb/main/table_description.hpp"
 
 namespace myduck
 {
 
-ulonglong duckdb_log_options= 0;
+constexpr char DUCKDB_FILE_NAME[]= "duckdb.db";
+constexpr char DUCKDB_DEFAULT_TMP_NAME[]= "duckdb_tmp";
 
-const char *duckdb_log_types[]= {"DUCKDB_QUERY", "DUCKDB_QUERY_RESULT",
-                                 nullptr};
+class DuckdbManager
+{
+public:
+  DuckdbManager(const DuckdbManager &)= delete;
+  DuckdbManager &operator=(const DuckdbManager &)= delete;
 
-TYPELIB log_options_typelib= CREATE_TYPELIB_FOR(duckdb_log_types);
+  static bool CreateInstance();
+  static void Cleanup();
+  static inline DuckdbManager &Get();
+  static std::shared_ptr<duckdb::Connection> CreateConnection();
+
+private:
+  static DuckdbManager *m_instance;
+
+  DuckdbManager();
+  ~DuckdbManager();
+
+  bool Initialize();
+
+  duckdb::DuckDB *m_database= nullptr;
+  std::mutex m_mutex;
+};
 
 } // namespace myduck
