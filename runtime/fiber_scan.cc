@@ -19,10 +19,18 @@
 #include <my_global.h>
 #include "sql_class.h"
 #include "item.h"
+#include "sql_parse.h"
+#include "sql_lex.h"
 
 #undef UNKNOWN
 
 #include "fiber_scan.h"
+#include "duckdb_log.h"
+
+MYSQL_THD create_background_thd();
+void destroy_background_thd(MYSQL_THD thd);
+void *thd_attach_thd(MYSQL_THD thd);
+void thd_detach_thd(void *mysysvar);
 
 namespace myduck
 {
@@ -134,6 +142,192 @@ void select_to_duckdb::abort_result_set()
 {
   error_= true;
   finished_= true;
+}
+
+/* ----------------------------------------------------------------
+   FiberScanState
+   ---------------------------------------------------------------- */
+
+int FiberScanState::init(TABLE *tbl,
+                         const duckdb::vector<duckdb::idx_t> &col_ids,
+                         const duckdb::vector<duckdb::LogicalType> &col_types,
+                         const std::string &where_sql)
+{
+  table= tbl;
+  column_ids= col_ids;
+  types= col_types;
+  where_clause= where_sql;
+
+  if (tbl->s->db.str)
+    db_name.assign(tbl->s->db.str, tbl->s->db.length);
+  if (tbl->s->table_name.str)
+    table_name.assign(tbl->s->table_name.str, tbl->s->table_name.length);
+
+  buffer.Initialize(duckdb::Allocator::DefaultAllocator(), types);
+
+  if (fiber_context_init(&ctx, FIBER_STACK_SIZE))
+    return 1;
+
+  fiber_thd= create_background_thd();
+  if (!fiber_thd)
+  {
+    fiber_context_destroy(&ctx);
+    return 1;
+  }
+
+  /* Grant full privileges so the fiber can open any table */
+  fiber_thd->security_ctx->master_access= ALL_KNOWN_ACL;
+
+  /* Disable query cache — fiber queries are internal, not cacheable */
+  fiber_thd->query_cache_is_applicable= 0;
+
+  return 0;
+}
+
+FiberScanState::~FiberScanState()
+{
+  if (fiber_started && !finished)
+  {
+    if (fiber_thd)
+      fiber_thd->set_killed_no_mutex(KILL_QUERY);
+
+    while (!finished)
+    {
+      buffer.Reset();
+      int rc= fiber_context_continue(&ctx);
+      if (rc == 0)
+      {
+        finished= true;
+        break;
+      }
+    }
+  }
+
+  delete result;
+  result= nullptr;
+
+  if (fiber_thd)
+  {
+    THD *saved= current_thd;
+    set_current_thd(nullptr);
+    destroy_background_thd(fiber_thd);
+    set_current_thd(saved);
+    fiber_thd= nullptr;
+  }
+
+  fiber_context_destroy(&ctx);
+}
+
+/* ----------------------------------------------------------------
+   Build synthetic SELECT from column_ids + WHERE
+   ---------------------------------------------------------------- */
+
+static std::string build_synthetic_select(FiberScanState *state)
+{
+  std::string sql= "SELECT ";
+
+  bool first= true;
+  for (auto col_idx : state->column_ids)
+  {
+    if (!first)
+      sql+= ", ";
+    first= false;
+
+    Field *field= state->table->field[col_idx];
+    sql+= '`';
+    sql+= field->field_name.str;
+    sql+= '`';
+  }
+
+  if (first)
+    sql+= "*";
+
+  sql+= " FROM `";
+  sql+= state->db_name;
+  sql+= "`.`";
+  sql+= state->table_name;
+  sql+= '`';
+
+  if (!state->where_clause.empty())
+  {
+    sql+= " WHERE ";
+    sql+= state->where_clause;
+  }
+
+  return sql;
+}
+
+/* ----------------------------------------------------------------
+   Fiber entry point
+   ---------------------------------------------------------------- */
+
+void fiber_scan_func(void *arg)
+{
+  auto *state= static_cast<FiberScanState *>(arg);
+  THD *thd= state->fiber_thd;
+
+  /*
+    TLS (current_thd + THR_KEY_mysys) is already set by the caller
+    (mdb_scan_function) before fiber_context_spawn/continue.
+    Do NOT use thd_attach_thd/thd_detach_thd here — they assert
+    !current_thd which fails because fibers share the OS thread.
+  */
+
+  /* Set thread_stack for check_stack_overrun() — point to fiber's stack */
+  char stack_top;
+  thd->thread_stack= &stack_top;
+
+  state->result= new select_to_duckdb(thd, &state->ctx,
+                                      &state->buffer,
+                                      &state->types);
+
+  std::string sql= build_synthetic_select(state);
+
+  /* Allocate query buffer on THD mem_root */
+  size_t len= sql.size();
+  char *buf= static_cast<char *>(thd->alloc(len + 1));
+  if (!buf)
+  {
+    state->error= true;
+    state->finished= true;
+    return;
+  }
+  memcpy(buf, sql.c_str(), len + 1);
+  thd->set_query_inner(buf, static_cast<uint32>(len),
+                       system_charset_info);
+
+  /* Initialize parser */
+  lex_start(thd);
+  thd->reset_for_next_command();
+
+  Parser_state parser_state;
+  if (parser_state.init(thd, buf, len) ||
+      parse_sql(thd, &parser_state, NULL) ||
+      thd->is_error())
+  {
+    state->error= true;
+    state->finished= true;
+    thd->end_statement();
+    thd->cleanup_after_query();
+    return;
+  }
+
+  /* Install our result interceptor */
+  thd->lex->result= state->result;
+
+  /* Execute — send_data() will yield when DataChunk is full */
+  mysql_execute_command(thd);
+
+  /* Prevent end_statement() from deleting our result interceptor */
+  thd->lex->result= NULL;
+
+  if (thd->is_error())
+    state->error= true;
+
+  thd->end_statement();
+  thd->cleanup_after_query();
+
+  state->finished= true;
 }
 
 } /* namespace myduck */

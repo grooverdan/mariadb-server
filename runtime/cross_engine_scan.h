@@ -51,6 +51,9 @@ struct ExternalTableInfo
   to the _mdb_scan table function.
 */
 void register_external_table(const std::string &name, TABLE *table);
+void register_external_where(const std::string &name,
+                             const std::string &where_sql);
+std::string find_external_where(const std::string &name);
 void clear_external_tables();
 TABLE *find_external_table(const std::string &name);
 

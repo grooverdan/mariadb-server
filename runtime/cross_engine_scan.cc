@@ -28,6 +28,7 @@
 #undef UNKNOWN
 
 #include "cross_engine_scan.h"
+#include "fiber_scan.h"
 #include "ddl_convertor.h"
 #include "duckdb_log.h"
 
@@ -40,6 +41,8 @@
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 
+extern "C" pthread_key(struct st_my_thread_var *, THR_KEY_mysys);
+
 namespace myduck
 {
 
@@ -49,13 +52,33 @@ namespace myduck
 
 static thread_local std::unordered_map<std::string, TABLE *>
     tls_external_tables;
+static thread_local std::unordered_map<std::string, std::string>
+    tls_external_where;
 
 void register_external_table(const std::string &name, TABLE *table)
 {
   tls_external_tables[name]= table;
 }
 
-void clear_external_tables() { tls_external_tables.clear(); }
+void register_external_where(const std::string &name,
+                             const std::string &where_sql)
+{
+  tls_external_where[name]= where_sql;
+}
+
+std::string find_external_where(const std::string &name)
+{
+  auto it= tls_external_where.find(name);
+  if (it != tls_external_where.end())
+    return it->second;
+  return std::string();
+}
+
+void clear_external_tables()
+{
+  tls_external_tables.clear();
+  tls_external_where.clear();
+}
 
 TABLE *find_external_table(const std::string &name)
 {
@@ -232,6 +255,11 @@ struct MdbScanGlobalState : duckdb::GlobalTableFunctionState
   bool finished= false;
   TABLE *table= nullptr;
   duckdb::vector<duckdb::idx_t> column_ids;
+  std::string table_key;
+  std::string where_sql;
+
+  /* Fiber-based scan for predicate pushdown */
+  std::unique_ptr<FiberScanState> fiber;
 
   idx_t MaxThreads() const override { return 1; }
 };
@@ -270,6 +298,8 @@ mdb_scan_init_global(duckdb::ClientContext &context,
   auto state= duckdb::make_uniq<MdbScanGlobalState>();
   state->table= bind_data.table;
   state->column_ids= input.column_ids;
+  state->table_key= bind_data.table_key;
+  state->where_sql= find_external_where(bind_data.table_key);
   return duckdb::unique_ptr<duckdb::GlobalTableFunctionState>(
       std::move(state));
 }
@@ -294,8 +324,82 @@ static void mdb_scan_function(duckdb::ClientContext &context,
     return;
   }
 
-  /* Adopt the MariaDB THD on this DuckDB worker thread so that
-     handler assertions (table->in_use == current_thd) pass. */
+  /* ---- Lazy fiber initialization on first call ---- */
+  if (!state.scan_started)
+  {
+    const std::string &where_sql= state.where_sql;
+    if (!where_sql.empty() || true)  /* Always use fiber for MVP */
+    {
+      duckdb::vector<duckdb::LogicalType> col_types;
+      for (auto col_idx : state.column_ids)
+        col_types.push_back(field_to_logical_type(tbl->field[col_idx]));
+
+      state.fiber= std::make_unique<FiberScanState>();
+      if (state.fiber->init(tbl, state.column_ids, col_types, where_sql))
+      {
+        state.finished= true;
+        output.SetCardinality(0);
+        state.fiber.reset();
+        return;
+      }
+    }
+    state.scan_started= true;
+  }
+
+  /* ---- Fiber-based scan path ---- */
+  if (state.fiber)
+  {
+    /*
+      Save caller TLS and install fiber THD context.
+      Fibers share the OS thread, so we must swap current_thd and
+      THR_KEY_mysys manually around spawn/continue.
+    */
+    THD *prev_thd= _current_thd();
+    void *prev_mysys= pthread_getspecific(THR_KEY_mysys);
+    THD *fiber_thd= state.fiber->fiber_thd;
+
+    set_current_thd(fiber_thd);
+    if (fiber_thd && fiber_thd->mysys_var)
+      pthread_setspecific(THR_KEY_mysys, fiber_thd->mysys_var);
+
+    if (!state.fiber->fiber_started)
+    {
+      fiber_context_spawn(&state.fiber->ctx, fiber_scan_func,
+                          state.fiber.get());
+      state.fiber->fiber_started= true;
+    }
+    else
+    {
+      state.fiber->buffer.Reset();
+      fiber_context_continue(&state.fiber->ctx);
+    }
+
+    /* Restore caller TLS */
+    set_current_thd(prev_thd);
+    pthread_setspecific(THR_KEY_mysys, prev_mysys);
+
+    if (state.fiber->error)
+    {
+      state.finished= true;
+      output.SetCardinality(0);
+      return;
+    }
+
+    if (state.fiber->buffer.size() > 0)
+    {
+      output.Reference(state.fiber->buffer);
+      if (state.fiber->finished)
+        state.finished= true;
+    }
+    else
+    {
+      output.SetCardinality(0);
+      state.finished= true;
+    }
+    return;
+  }
+
+  /* ---- Fallback: direct ha_rnd_next (no fiber) ---- */
   THD *prev_thd= _current_thd();
   if (tbl->in_use && tbl->in_use != prev_thd)
     set_current_thd(tbl->in_use);
@@ -314,7 +418,6 @@ static void mdb_scan_function(duckdb::ClientContext &context,
         set_current_thd(prev_thd);
       return;
     }
-    state.scan_started= true;
   }
 
   duckdb::idx_t count= 0;

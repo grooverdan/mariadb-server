@@ -356,13 +356,30 @@ int ha_duckdb_select_handler::init_scan()
    */
   if (has_cross_engine)
   {
-    auto register_tables_from_sel= [](SELECT_LEX *sl) {
+    auto register_tables_from_sel= [this](SELECT_LEX *sl) {
       for (TABLE_LIST *tbl= sl->get_table_list(); tbl; tbl= tbl->next_global)
       {
         if (tbl->derived || !tbl->table)
           continue;
         if (tbl->table->file->ht != duckdb_hton)
+        {
           myduck::register_external_table(tbl->table_name.str, tbl->table);
+
+          if (sl->where)
+          {
+            COND *table_cond=
+                make_cond_for_table(thd, sl->where, tbl->table->map,
+                                    tbl->table->map, -1, false, false);
+            if (table_cond)
+            {
+              StringBuffer<1024> buf;
+              table_cond->print(&buf, QT_ORDINARY);
+              myduck::register_external_where(
+                  tbl->table_name.str,
+                  std::string(buf.ptr(), buf.length()));
+            }
+          }
+        }
       }
     };
 
