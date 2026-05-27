@@ -1477,7 +1477,7 @@ EXPLAIN
           "rows": 2,
           "cost": "COST_REPLACED",
           "filtered": 100,
-          "attached_condition": "t1.a = _latin1'\xDF'"
+          "attached_condition": "t1.a = _latin1'\\xDF'"
         }
       }
     ]

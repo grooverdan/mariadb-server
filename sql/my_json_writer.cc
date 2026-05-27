@@ -14,6 +14,7 @@
    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335 USA */
 
 #include "my_global.h"
+#include <json_lib.h>
 #include "my_json_writer.h"
 
 #if !defined(NDEBUG) || defined(JSON_WRITER_UNIT_TEST)
@@ -284,10 +285,45 @@ void Json_writer::add_str(const char *str)
 }
 
 /*
-  This function is used to add only num_bytes of str to the output string
+  @brief
+    Add a string pointed by str of num_bytes length, escaping it if needed.
+
+  @param
+    str         String in utf8mb4.
+    num_bytes   Length of string in bytes (not characters).
 */
 
 void Json_writer::add_str(const char* str, size_t num_bytes)
+{
+  int rc;
+  /* Initial buffer, json_escape_to_string will alloc larger if needed */
+  StringBuffer<128> buf;
+  if ((rc= json_escape_to_string(str, num_bytes, &my_charset_utf8mb4_bin, &buf)))
+  {
+    if (rc == JSON_ERROR_ILLEGAL_SYMBOL)
+      str= "String with illegal unicode symbol";
+    else
+    {
+      DBUG_ASSERT(rc == JSON_ERROR_OUT_OF_SPACE);
+      str= "Out of memory writing JSON";
+    }
+    num_bytes= strlen(str);
+  }
+  else
+  {
+    str= buf.ptr();
+    num_bytes= buf.length();
+  }
+  add_escaped_str(str, num_bytes);
+}
+
+
+/*
+  @brief
+    Add a string value. The caller guarantees that it doesn't need escaping.
+*/
+
+void Json_writer::add_escaped_str(const char* str, size_t num_bytes)
 {
   VALIDITY_ASSERT(fmt_helper.is_making_writer_calls() ||
                   got_name == named_item_expected());
@@ -305,7 +341,22 @@ void Json_writer::add_str(const char* str, size_t num_bytes)
 
 void Json_writer::add_str(const String &str)
 {
-  add_str(str.ptr(), str.length());
+  uint32 offs;
+  /* str may be in any charset. Convert to utf8mb4 if necessary */
+  if (String::needs_conversion(str.length(), str.charset(),
+                               &my_charset_utf8mb4_bin, &offs))
+  {
+    uint err;
+    StringBuffer<128> converted_str;
+    if (converted_str.copy(&str, &my_charset_utf8mb4_bin, &err))
+    {
+      const char *errstr= "Conversion error writing JSON";
+      converted_str.set(errstr, strlen(errstr), &my_charset_utf8mb4_bin);
+    }
+    add_str(converted_str.ptr(), converted_str.length());
+  }
+  else
+    add_str(str.ptr(), str.length());
 }
 
 #ifdef ENABLED_JSON_WRITER_CONSISTENCY_CHECKS
@@ -492,4 +543,56 @@ void Single_line_formatting_helper::disable_and_flush()
   }
   buf_ptr= buffer;
   state= INACTIVE;
+}
+
+/*
+  @brief
+    Escape a JSON string and save it into *out.
+
+  @detail
+    There's no way to tell how much space is needed for the output.
+    Start with a small string and increase its size until json_escape()
+    succeeds.
+*/
+
+int json_escape_to_string(const char *str, size_t len, CHARSET_INFO *cs,
+                          String *out)
+{
+  /* Safety: assert that str doesn't point into *out. */
+  DBUG_ASSERT(!out->alloced_length() ||
+              str < out->ptr() || str >= out->ptr() + out->alloced_length());
+
+  // Make sure 'out' has some memory allocated.
+  if (!out->alloced_length() && out->alloc(128))
+    return JSON_ERROR_OUT_OF_SPACE;
+
+  while (1)
+  {
+    uchar *buf= (uchar*)out->ptr();
+    out->length(out->alloced_length());
+    const uchar *str_ptr= (const uchar*)str;
+
+    int res= json_escape(cs,
+                         str_ptr,
+                         str_ptr + len,
+                         &my_charset_utf8mb4_bin,
+                         buf, buf + out->length());
+    if (res >= 0)
+    {
+      out->length(res);
+      return 0; // Ok
+    }
+
+    if (res != JSON_ERROR_OUT_OF_SPACE)
+      return res; // Some conversion error
+
+    // Out of space error. Try with a bigger buffer
+    if (out->alloc(out->alloced_length()*2))
+      return JSON_ERROR_OUT_OF_SPACE;
+  }
+}
+
+int json_escape_to_string(const String *str, String *out)
+{
+  return json_escape_to_string(str->ptr(), str->length(), str->charset(), out);
 }

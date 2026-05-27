@@ -80,28 +80,7 @@ static bool dump_record_to_trace(THD *thd, DDL_Key *ddl_key, String *stmt)
 {
   Json_writer_object ddl_wrapper(thd);
   ddl_wrapper.add("name", ddl_key->name);
-  size_t non_esc_stmt_len= stmt->length();
-  /*
-    making escape_stmt size to be 4 times the non_esc_stmt
-    4 is chosen as a worst case although 3 should suffice.
-    "'" would be escaped to \"\'\"
-  */
-  size_t len_multiplier= sizeof(uint32_t);
-  size_t escape_stmt_len= len_multiplier * non_esc_stmt_len;
-  char *escaped_stmt= (char *) thd->alloc(escape_stmt_len + 1);
-
-  if (!escaped_stmt)
-    return true;
-
-  int act_escape_stmt_len=
-      json_escape_string(stmt->c_ptr(), stmt->c_ptr() + non_esc_stmt_len,
-                         escaped_stmt, escaped_stmt + escape_stmt_len);
-
-  if (act_escape_stmt_len < 0)
-    return true;
-
-  escaped_stmt[act_escape_stmt_len]= 0;
-  ddl_wrapper.add("ddl", escaped_stmt);
+  ddl_wrapper.add("ddl", stmt->c_ptr_safe());
   return false;
 }
 

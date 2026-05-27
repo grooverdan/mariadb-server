@@ -243,11 +243,14 @@ public:
   
   /* Add atomic values */
 
-  /* Note: the add_str methods do not do escapes. Should this change? */
+  /* All const char* arguments are strings in utf8mb4 */
   void add_str(const char* val);
   void add_str(const char* val, size_t num_bytes);
   void add_str(const String &str);
   void add_str(Item *item);
+
+  /* Add a string for which the caller has done escaping needed in JSON */
+  void add_escaped_str(const char* val, size_t len);
   void add_table_name(const JOIN_TAB *tab);
   void add_table_name(const TABLE* table);
 
@@ -797,5 +800,9 @@ public:
   }
 #endif
 };
+
+int json_escape_to_string(const String *str, String *out);
+int json_escape_to_string(const char *str, size_t len, CHARSET_INFO *cs,
+                          String *out);
 
 #endif

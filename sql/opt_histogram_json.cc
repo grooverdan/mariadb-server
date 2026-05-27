@@ -67,49 +67,6 @@ bool json_unescape_to_string(const char *val, int val_len, String* out)
 }
 
 
-/*
-  @brief
-    Escape a JSON string and save it into *out.
-
-  @detail
-    There's no way to tell how much space is needed for the output.
-    Start with a small string and increase its size until json_escape()
-    succeeds.
-*/
-
-static int json_escape_to_string(const String *str, String* out)
-{
-  // Make sure 'out' has some memory allocated.
-  if (!out->alloced_length() && out->alloc(128))
-    return JSON_ERROR_OUT_OF_SPACE;
-
-  while (1)
-  {
-    uchar *buf= (uchar*)out->ptr();
-    out->length(out->alloced_length());
-    const uchar *str_ptr= (const uchar*)str->ptr();
-
-    int res= json_escape(str->charset(),
-                         str_ptr,
-                         str_ptr + str->length(),
-                         &my_charset_utf8mb4_bin,
-                         buf, buf + out->length());
-    if (res >= 0)
-    {
-      out->length(res);
-      return 0; // Ok
-    }
-
-    if (res != JSON_ERROR_OUT_OF_SPACE)
-      return res; // Some conversion error
-
-    // Out of space error. Try with a bigger buffer
-    if (out->alloc(out->alloced_length()*2))
-      return JSON_ERROR_OUT_OF_SPACE;
-  }
-}
-
-
 class Histogram_json_builder : public Histogram_builder
 {
   Histogram_json_hb *histogram;
@@ -256,7 +213,7 @@ private:
       if (!rc)
       {
         writer.add_member(is_start? "start": "end");
-        writer.add_str(escaped_val.c_ptr_safe());
+        writer.add_escaped_str(escaped_val.ptr(), escaped_val.length());
         return false;
       }
     }

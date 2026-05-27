@@ -791,12 +791,12 @@ public:
   /* Internals */
 
   /* id and 'select_type' are cared-of by the parent Explain_select */
-  StringBuffer<32> table_name;
-  StringBuffer<32> used_partitions;
+  StringBuffer<32> table_name{system_charset_info};
+  StringBuffer<32> used_partitions{system_charset_info};
   String_list used_partitions_list;
   // valid with ET_USING_MRR
   StringBuffer<32> mrr_type;
-  StringBuffer<32> firstmatch_table_name;
+  StringBuffer<32> firstmatch_table_name{system_charset_info};
 
   /* 
     Non-zero number means this is a derived table. The number can be used to

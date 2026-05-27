@@ -1389,6 +1389,22 @@ drop table t1;
 
 SHOW CREATE TABLE information_schema.optimizer_trace;
 
+--echo #
+--echo # MDEV-39720: Optimizer Trace may have invalid JSON due to quoting.
+--echo #
+create table t1 (
+  a varchar(100)
+);
+
+set optimizer_trace=1;
+explain
+select * from t1 where a < '"';
+
+set @trace=(select trace from information_schema.optimizer_trace);
+select json_valid(@trace);
+
+drop table t1;
+
 set  @@optimizer_switch= @save_optimizer_switch;
 set  @@use_stat_tables= @save_use_stat_tables;
 set  @@histogram_size= @save_histogram_size;
