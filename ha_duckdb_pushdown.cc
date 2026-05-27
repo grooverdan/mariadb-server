@@ -373,7 +373,12 @@ int ha_duckdb_select_handler::init_scan()
             if (table_cond)
             {
               StringBuffer<1024> buf;
-              table_cond->print(&buf, QT_ORDINARY);
+              table_cond->print(&buf,
+                  QT_ITEM_IDENT_DISABLE_DB_TABLE_NAMES);
+              if (myduck::duckdb_log_options & LOG_DUCKDB_QUERY)
+                sql_print_information(
+                    "CROSS-ENGINE: WHERE for '%s': %.*s",
+                    tbl->table_name.str, (int) buf.length(), buf.ptr());
               myduck::register_external_where(
                   tbl->table_name.str,
                   std::string(buf.ptr(), buf.length()));

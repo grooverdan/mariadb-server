@@ -233,12 +233,14 @@ static duckdb::Value field_to_duckdb_value(Field *field)
 struct MdbScanBindData : duckdb::FunctionData
 {
   std::string table_key;
+  std::string where_sql;
   TABLE *table= nullptr;
 
   duckdb::unique_ptr<duckdb::FunctionData> Copy() const override
   {
     auto copy= duckdb::make_uniq<MdbScanBindData>();
     copy->table_key= table_key;
+    copy->where_sql= where_sql;
     copy->table= table;
     return duckdb::unique_ptr<duckdb::FunctionData>(std::move(copy));
   }
@@ -286,6 +288,7 @@ mdb_scan_bind(duckdb::ClientContext &context,
 
   auto data= duckdb::make_uniq<MdbScanBindData>();
   data->table_key= key;
+  data->where_sql= find_external_where(key);
   data->table= tbl;
   return duckdb::unique_ptr<duckdb::FunctionData>(std::move(data));
 }
@@ -299,7 +302,7 @@ mdb_scan_init_global(duckdb::ClientContext &context,
   state->table= bind_data.table;
   state->column_ids= input.column_ids;
   state->table_key= bind_data.table_key;
-  state->where_sql= find_external_where(bind_data.table_key);
+  state->where_sql= bind_data.where_sql;
   return duckdb::unique_ptr<duckdb::GlobalTableFunctionState>(
       std::move(state));
 }

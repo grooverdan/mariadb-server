@@ -21,3 +21,4 @@ duckdb_time_func : ADDDATE() not in DuckDB
 rename_duckdb_table : server log warnings on cross-schema rename
 supported_copy_ddl : cross-schema rename not supported
 system_timezone : hangs on mariadbd-safe restart
+truncate_and_maintenance_duckdb_table: different output b/w major MariaDB versions

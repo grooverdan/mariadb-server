@@ -29,8 +29,8 @@
 
 MYSQL_THD create_background_thd();
 void destroy_background_thd(MYSQL_THD thd);
-void *thd_attach_thd(MYSQL_THD thd);
-void thd_detach_thd(void *mysysvar);
+
+extern "C" pthread_key(struct st_my_thread_var *, THR_KEY_mysys);
 
 namespace myduck
 {
@@ -191,16 +191,27 @@ FiberScanState::~FiberScanState()
     if (fiber_thd)
       fiber_thd->set_killed_no_mutex(KILL_QUERY);
 
+    /*
+      Swap TLS to fiber context before resuming so the fiber can
+      finish cleanly (same pattern as mdb_scan_function).
+    */
+    THD *prev_thd= _current_thd();
+    void *prev_mysys= pthread_getspecific(THR_KEY_mysys);
+
+    set_current_thd(fiber_thd);
+    if (fiber_thd && fiber_thd->mysys_var)
+      pthread_setspecific(THR_KEY_mysys, fiber_thd->mysys_var);
+
     while (!finished)
     {
       buffer.Reset();
       int rc= fiber_context_continue(&ctx);
-      if (rc == 0)
-      {
-        finished= true;
+      if (rc <= 0)  /* 0 = fiber returned, -1 = error */
         break;
-      }
     }
+
+    set_current_thd(prev_thd);
+    pthread_setspecific(THR_KEY_mysys, prev_mysys);
   }
 
   delete result;
@@ -208,7 +219,7 @@ FiberScanState::~FiberScanState()
 
   if (fiber_thd)
   {
-    THD *saved= current_thd;
+    THD *saved= _current_thd();
     set_current_thd(nullptr);
     destroy_background_thd(fiber_thd);
     set_current_thd(saved);
@@ -283,6 +294,9 @@ void fiber_scan_func(void *arg)
 
   std::string sql= build_synthetic_select(state);
 
+  if (myduck::duckdb_log_options & LOG_DUCKDB_QUERY)
+    sql_print_information("FIBER: synthetic SQL: %s", sql.c_str());
+
   /* Allocate query buffer on THD mem_root */
   size_t len= sql.size();
   char *buf= static_cast<char *>(thd->alloc(len + 1));
@@ -305,6 +319,9 @@ void fiber_scan_func(void *arg)
       parse_sql(thd, &parser_state, NULL) ||
       thd->is_error())
   {
+    sql_print_error("FIBER: parse/init error for: %s", sql.c_str());
+    if (thd->is_error())
+      sql_print_error("FIBER: THD error: %s", thd->get_stmt_da()->message());
     state->error= true;
     state->finished= true;
     thd->end_statement();
@@ -322,7 +339,16 @@ void fiber_scan_func(void *arg)
   thd->lex->result= NULL;
 
   if (thd->is_error())
+  {
+    sql_print_error("FIBER: execution error: %s",
+                    thd->get_stmt_da()->message());
     state->error= true;
+  }
+
+  if (myduck::duckdb_log_options & LOG_DUCKDB_QUERY)
+    sql_print_information("FIBER: finished, buffer rows=%llu error=%d",
+                          (ulonglong) state->buffer.size(),
+                          (int) state->error);
 
   thd->end_statement();
   thd->cleanup_after_query();
