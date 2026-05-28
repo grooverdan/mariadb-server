@@ -1045,8 +1045,11 @@ static void fetch_data_into_cache_low(trx_i_s_cache_t *cache, const trx_t *trx)
 
 static void fetch_data_into_cache(trx_i_s_cache_t *cache)
 {
-  LockMutexGuard g{SRW_LOCK_CALL};
+  /* these are protected by cache->rw_lock.wr_lock() */
   trx_i_s_cache_clear(cache);
+  /* this flag may be set by fetch_data_into_cache_low() below */
+  cache->is_truncated= false;
+  LockMutexGuard g{SRW_LOCK_CALL};
 
   /* Capture the state of transactions */
   trx_sys.trx_list.for_each([cache](trx_t &trx) {
@@ -1059,7 +1062,6 @@ static void fetch_data_into_cache(trx_i_s_cache_t *cache)
       trx.mutex_unlock();
     }
   });
-  cache->is_truncated= false;
 }
 
 
