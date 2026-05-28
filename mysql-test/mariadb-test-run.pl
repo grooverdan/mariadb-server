@@ -2286,6 +2286,14 @@ sub environment_setup {
   $ENV{'MYSQL_MY_PRINT_DEFAULTS'}= native_path($exe_my_print_defaults);
 
   # ----------------------------------------------------
+  # mariadb-migrate-config-file
+  # ----------------------------------------------------
+  my $exe_mariadb_migrate_config_file=
+    mtr_exe_maybe_exists("$bindir/extra$multiconfig/mariadb-migrate-config-file",
+		   "$path_client_bindir/mariadb-migrate-config-file");
+  $ENV{'MARIADB_MIGRATE_CONFIG_FILE'}= native_path($exe_mariadb_migrate_config_file) if $exe_mariadb_migrate_config_file;
+
+  # ----------------------------------------------------
   # myisam tools
   # ----------------------------------------------------
   $ENV{'MYISAMLOG'}= tool_arguments("storage/myisam", "myisamlog", );

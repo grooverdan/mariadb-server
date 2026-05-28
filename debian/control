@@ -15,7 +15,6 @@ Build-Depends:
  libaio-dev [linux-any],
  libboost-atomic-dev [amd64 arm64],
  libboost-chrono-dev [amd64 arm64],
- libboost-date-time-dev [amd64 arm64],
  libboost-dev,
  libboost-filesystem-dev [amd64 arm64],
  libboost-regex-dev [amd64 arm64],
@@ -809,7 +808,6 @@ Description: MariaDB database core server files
 Package: mariadb-server
 Architecture: any
 Suggests:
- mailx,
  mariadb-test,
  netcat-openbsd,
 Recommends:

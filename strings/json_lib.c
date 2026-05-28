@@ -1582,15 +1582,30 @@ int json_find_path(json_engine_t *je,
     case JST_OBJ_END:
       do
       {
+        json_path_step_t *cur;
+        const int *value_ptr;
+        int value;
         (*p_cur_step)--;
+
+        if (*p_cur_step <= initial_step)
+          break;
+
+        cur= *p_cur_step;
+
         value_ptr=
-                 (int*)(array_counters->buffer) + (*p_cur_step-initial_step);
-        value= value_ptr ? *value_ptr : 0;
-      } while (*p_cur_step > initial_step &&
-                value == SKIPPED_STEP_MARK);
+          (const int*)array_counters->buffer + (cur - initial_step);
+
+        value= *value_ptr;
+
+        if (value != SKIPPED_STEP_MARK)
+          break;
+
+      } while (*p_cur_step > initial_step);
       break;
+
     case JST_ARRAY_END:
-      (*p_cur_step)--;
+      if (*p_cur_step > initial_step)
+        (*p_cur_step)--;
       break;
     default:
       DBUG_ASSERT(0);
