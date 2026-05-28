@@ -1544,13 +1544,14 @@ void log_t::persist(lsn_t lsn) noexcept
   ut_ad(!write_lock.is_owner());
   ut_ad(!flush_lock.is_owner());
   ut_ad(latch_have_wr());
-  ut_ad(is_opened() == archive);
 
   lsn_t old= flushed_to_disk_lsn.load(std::memory_order_relaxed);
 
   if (old > lsn)
     return;
 
+  ut_ad(is_mmap_writeable());
+  ut_ad(is_opened() == archive);
   const size_t start(calc_lsn_offset(old));
   const size_t end(calc_lsn_offset(lsn));
 
