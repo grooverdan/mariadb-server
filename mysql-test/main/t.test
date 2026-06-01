@@ -1,0 +1,16 @@
+--source include/have_innodb.inc
+
+--disable_abort_on_error
+
+CREATE TABLE DD (pk varchar(3) NOT NULL DEFAULT '', col_int_nokey int(11) DEFAULT NULL, col_int_key int(11) DEFAULT NULL, col_varchar_key varchar(52) DEFAULT NULL, col_varchar_nokey varchar(52) DEFAULT NULL, PRIMARY KEY (pk), UNIQUE KEY col_varchar_key (col_varchar_key), KEY col_int_key (col_int_key));
+
+CREATE TEMPORARY TABLE test.tmp87 SELECT pk AS f1, col_varchar_key AS f2, col_varchar_nokey AS f3 FROM dd;
+
+ALTER IGNORE TABLE test.tmp87 CHANGE IF EXISTS f2 f2 TIME NULL DEFAULT CURRENT_TIME(0);
+
+CREATE TABLE test.tmp206 SELECT f2 AS f1, f2 AS f2, f2 AS f3 FROM test.tmp87;
+
+ANALYZE FORMAT=JSON SELECT DISTINCT STD((CONVERT((MAKETIME(('vhoihppzenpoayzgyhgaehzikdowezxwajjdqawvqfvoatwiqukclafhlpybolklgqxkkvjqrgixvdcotnjwoiyskbgtlsmmovxdwjeiophtjuulwhdoaieylgtgqwssenfqefxddznhvtysshlighclskeglvbpiqsnufqxuuagipqvcerheytzhowrcxxydkiuiizx' IS NOT TRUE), (IF(f3, 6986208921958481920, f3)), f1)) USING latin1))) AS field1 FROM test.tmp206 WHERE (DEFAULT(f2)) IS NULL;
+
+
+DROP TABLE DD;

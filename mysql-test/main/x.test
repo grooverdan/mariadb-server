@@ -1,0 +1,23 @@
+--source include/have_sequence.inc
+
+DELIMITER $$;
+
+CREATE FUNCTION generate_deep_xml_string(depth INT)
+RETURNS TEXT
+DETERMINISTIC
+BEGIN
+    DECLARE str TEXT DEFAULT '';
+    WHILE 0 <= depth DO
+        SET str = CONCAT('<a', depth, '>', str, '</a', depth, '>');
+        SET depth = depth - 1;
+    END WHILE;
+    RETURN str;
+END$$
+
+DELIMITER ;$$
+
+SELECT generate_deep_xml_string(100);
+#SELECT UPDATEXML(generate_deep_xml_string(1000), (SELECT GROUP_CONCAT(CONCAT('a', seq) SEPARATOR '/') FROM seq_0_to_1000), '<deep>val</deep>');
+SELECT UPDATEXML(NULL, (SELECT CONCAT('/', GROUP_CONCAT(CONCAT('a', seq) SEPARATOR '/')) FROM seq_0_to_10000), '<deep>val</deep>');
+
+DROP FUNCTION generate_deep_xml_string;
