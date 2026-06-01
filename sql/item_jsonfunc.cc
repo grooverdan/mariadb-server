@@ -5562,10 +5562,7 @@ bool Item_func_json_array_intersect::prepare_json_and_create_hash(json_engine_t 
         report_json_error(js, je1, 0);
     }
 
-    max_length= 2*(args[0]->max_length < args[1]->max_length ?
-                 args[0]->max_length : args[1]->max_length);
-
-    return false;
+  return false;
 }
 
 bool Item_func_json_array_intersect::fix_length_and_dec(THD *thd)
@@ -5594,6 +5591,10 @@ bool Item_func_json_array_intersect::fix_length_and_dec(THD *thd)
   }
 
 end:
+  collation.set(args[0]->collation);
+  fix_char_length_ulonglong((ulonglong)
+                            2* MY_MIN(args[0]->max_char_length(),
+                                      args[1]->max_char_length()));
   set_maybe_null();
   return FALSE;
 }
