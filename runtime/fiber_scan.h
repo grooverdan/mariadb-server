@@ -75,11 +75,13 @@ duckdb::Value item_to_duckdb_value(Item *item,
                                    const duckdb::LogicalType &type);
 
 /**
-  Default fiber stack size (256 KB).
-  The fiber runs mysql_execute_command() which may use moderate stack
-  for parsing, optimization and handler calls.
+  Default fiber stack size (512 KB).
+  The fiber runs mysql_execute_command() which may use significant stack
+  for parsing, optimization and handler calls.  512 KB ensures that
+  check_stack_overrun() (which uses my_thread_stack_size, ~292 KB by
+  default) will fire before we exhaust the actual fiber stack.
 */
-static constexpr size_t FIBER_STACK_SIZE= 256 * 1024;
+static constexpr size_t FIBER_STACK_SIZE= 512 * 1024;
 
 /**
   Holds all state needed to run a MariaDB SELECT inside a fiber

@@ -107,6 +107,7 @@ id	val	name
 # (10) Large-ish scan to check multi-chunk fiber yield
 
 CREATE TABLE t_inno_big (id INT PRIMARY KEY, val INT) ENGINE=InnoDB;
+INSERT INTO t_inno_big SELECT seq, seq * 10 FROM seq_1_to_3000;
 CREATE TABLE t_duck_big (id INT PRIMARY KEY, label VARCHAR(20)) ENGINE=DuckDB;
 INSERT INTO t_duck_big VALUES (1, 'start'), (1500, 'mid'), (3000, 'end');
 SELECT d.id, d.label, i.val
