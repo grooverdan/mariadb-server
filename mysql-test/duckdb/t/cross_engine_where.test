@@ -1,3 +1,5 @@
+--source include/have_sequence.inc
+
 --echo #
 --echo # Cross-engine: WHERE pushdown, LIMIT, EXPLAIN, error cases
 --echo #
@@ -6,7 +8,8 @@
 --echo # Setup
 --echo
 
-CREATE DATABASE IF NOT EXISTS cross_engine_where CHARACTER SET utf8mb4;
+DROP DATABASE IF EXISTS cross_engine_where;
+CREATE DATABASE cross_engine_where CHARACTER SET utf8mb4;
 USE cross_engine_where;
 
 CREATE TABLE t_duck (id INT PRIMARY KEY, val VARCHAR(50)) ENGINE=DuckDB;
@@ -107,7 +110,7 @@ SELECT d.id, d.val, i.name
 --echo
 
 CREATE TABLE t_inno_big (id INT PRIMARY KEY, val INT) ENGINE=InnoDB;
-INSERT INTO t_inno_big SELECT seq, seq * 10 FROM seq_1_to_3000;
+INSERT INTO t_inno_big SELECT seq, seq * 10 FROM test.seq_1_to_3000;
 
 CREATE TABLE t_duck_big (id INT PRIMARY KEY, label VARCHAR(20)) ENGINE=DuckDB;
 INSERT INTO t_duck_big VALUES (1, 'start'), (1500, 'mid'), (3000, 'end');

@@ -4,7 +4,10 @@
 
 # Setup
 
-CREATE DATABASE IF NOT EXISTS cross_engine_where CHARACTER SET utf8mb4;
+DROP DATABASE IF EXISTS cross_engine_where;
+Warnings:
+Note	1008	Can't drop database 'cross_engine_where'; database doesn't exist
+CREATE DATABASE cross_engine_where CHARACTER SET utf8mb4;
 USE cross_engine_where;
 CREATE TABLE t_duck (id INT PRIMARY KEY, val VARCHAR(50)) ENGINE=DuckDB;
 CREATE TABLE t_inno (id INT PRIMARY KEY, name VARCHAR(50), score INT) ENGINE=InnoDB;
@@ -107,7 +110,7 @@ id	val	name
 # (10) Large-ish scan to check multi-chunk fiber yield
 
 CREATE TABLE t_inno_big (id INT PRIMARY KEY, val INT) ENGINE=InnoDB;
-INSERT INTO t_inno_big SELECT seq, seq * 10 FROM seq_1_to_3000;
+INSERT INTO t_inno_big SELECT seq, seq * 10 FROM test.seq_1_to_3000;
 CREATE TABLE t_duck_big (id INT PRIMARY KEY, label VARCHAR(20)) ENGINE=DuckDB;
 INSERT INTO t_duck_big VALUES (1, 'start'), (1500, 'mid'), (3000, 'end');
 SELECT d.id, d.label, i.val
