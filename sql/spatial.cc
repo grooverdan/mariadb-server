@@ -492,17 +492,13 @@ Geometry *Geometry::create_from_json(Geometry_buffer *buffer,
                       json_engine_t *je, bool er_on_3D, String *res)
 {
   Class_info *ci= NULL;
-  const uchar *coord_start= NULL, *geom_start= NULL,
-              *features_start= NULL, *geometry_start= NULL;
+  enum t_enum { T_NONE, T_GEOMETRY, T_GEOMETRIES, T_COORD, T_FEATURE };
+  enum t_enum arg= T_NONE;
+  json_engine_t argje;
   Geometry *result;
   uchar key_buf[max_keyname_len];
   uint key_len;
-  int fcoll_type_found= 0, feature_type_found= 0;
 
-
-  if (json_read_value(je))
-    goto err_return;
-  
   if (je->value_type != JSON_VALUE_OBJECT)
   {
     je->s.error= GEOJ_INCORRECT_GEOJSON;
@@ -540,31 +536,35 @@ Geometry *Geometry::create_from_json(Geometry_buffer *buffer,
 
       if (je->value_type == JSON_VALUE_STRING)
       {
-        if ((ci= find_class((const char *) je->value, je->value_len)))
+        if ((ci= find_class(reinterpret_cast<const char*>(je->value), je->value_len)))
         {
-          if ((coord_start=
-                (ci == &geometrycollection_class) ? geom_start : coord_start))
+          if ((ci == &geometrycollection_class && arg == T_GEOMETRY) || arg == T_COORD)
             goto create_geom;
+          if (arg != T_NONE)
+            break; /* invalid arg present for current geometry */
         }
         else if (je->value_len == feature_coll_type_len &&
             my_charset_latin1.strnncoll(je->value, je->value_len,
-		                        feature_coll_type, feature_coll_type_len) == 0)
+                                        feature_coll_type, feature_coll_type_len) == 0)
         {
           /*
             'FeatureCollection' type found. Handle the 'Featurecollection'/'features'
             GeoJSON construction.
           */
-          if (features_start)
-            goto handle_feature_collection;
-          fcoll_type_found= 1;
+          ci= &geometrycollection_class;
+          if (arg == T_FEATURE)
+            goto create_geom;
+          if (arg != T_NONE)
+            break; /* invalid arg present for current geometry */
         }
         else if (je->value_len == feature_type_len &&
                  my_charset_latin1.strnncoll(je->value, je->value_len,
-		                             feature_type, feature_type_len) == 0)
+                                             feature_type, feature_type_len) == 0)
         {
-          if (geometry_start)
+          if (arg == T_GEOMETRY)
             goto handle_geometry_key;
-          feature_type_found= 1;
+          if (arg != T_NONE)
+            break; /* invalid arg present for current geometry */
         }
         else /* can't understand the type. */
           break;
@@ -575,6 +575,8 @@ Geometry *Geometry::create_from_json(Geometry_buffer *buffer,
     else if (key_len == coord_keyname_len &&
              memcmp(key_buf, coord_keyname, coord_keyname_len) == 0)
     {
+      if (arg != T_NONE)
+        break; /* previous arg unprocessed */
       /*
         Found the "coordinates" key. Let's check it's an array
         and remember where it starts.
@@ -584,7 +586,8 @@ Geometry *Geometry::create_from_json(Geometry_buffer *buffer,
 
       if (je->value_type == JSON_VALUE_ARRAY)
       {
-        coord_start= je->value_begin;
+        arg= T_COORD;
+        argje= *je;
         if (ci && ci != &geometrycollection_class)
           goto create_geom;
         if (json_skip_level(je))
@@ -594,6 +597,8 @@ Geometry *Geometry::create_from_json(Geometry_buffer *buffer,
     else if (key_len == geometries_keyname_len &&
              memcmp(key_buf, geometries_keyname, geometries_keyname_len) == 0)
     {
+      if (arg != T_NONE)
+        break; /* previous arg unprocessed */
       /*
         Found the "geometries" key. Let's check it's an array
         and remember where it starts.
@@ -603,17 +608,17 @@ Geometry *Geometry::create_from_json(Geometry_buffer *buffer,
 
       if (je->value_type == JSON_VALUE_ARRAY)
       {
-        geom_start= je->value_begin;
+        arg= T_GEOMETRIES;
+        argje= *je;
         if (ci == &geometrycollection_class)
-        {
-          coord_start= geom_start;
           goto create_geom;
-        }
       }
     }
     else if (key_len == features_keyname_len &&
              memcmp(key_buf, features_keyname, features_keyname_len) == 0)
     {
+      if (arg != T_NONE)
+        break; /* previous arg unprocessed */
       /*
         'features' key found. Handle the 'Featurecollection'/'features'
         GeoJSON construction.
@@ -622,9 +627,12 @@ Geometry *Geometry::create_from_json(Geometry_buffer *buffer,
         goto err_return;
       if (je->value_type == JSON_VALUE_ARRAY)
       {
-        features_start= je->value_begin;
-        if (fcoll_type_found)
-          goto handle_feature_collection;
+        arg= T_FEATURE;
+        argje= *je;
+        if (ci == &geometrycollection_class)
+          goto create_geom;
+	if (ci != nullptr)
+	  break; /* features only valid inside featurecollation */
       }
     }
     else if (key_len == geometry_keyname_len &&
@@ -634,9 +642,12 @@ Geometry *Geometry::create_from_json(Geometry_buffer *buffer,
         goto err_return;
       if (je->value_type == JSON_VALUE_OBJECT)
       {
-        geometry_start= je->value_begin;
-        if (feature_type_found)
-          goto handle_geometry_key;
+        arg= T_GEOMETRY;
+        argje= *je;
+        if (ci == &geometrycollection_class)
+          goto create_geom;
+	if (ci != nullptr)
+	  break; /* features only valid inside featurecollation */
       }
       else
         goto err_return;
@@ -658,13 +669,7 @@ Geometry *Geometry::create_from_json(Geometry_buffer *buffer,
   }
   goto err_return;
 
-handle_feature_collection:
-  ci= &geometrycollection_class;
-  coord_start= features_start;
-
 create_geom:
-
-  json_scan_start(je, je->s.cs, coord_start, je->s.str_end);
 
   if (res->reserve(1 + 4, 512))
     goto err_return;
@@ -672,14 +677,18 @@ create_geom:
   result= (*ci->m_create_func)(buffer->data);
   res->q_append((char) wkb_ndr);
   res->q_append((uint32) result->get_class_info()->m_type_id);
-  if (result->init_from_json(je, er_on_3D, res))
+  if (result->init_from_json(&argje, er_on_3D, res))
     goto err_return;
 
+  // je .  argje...
   return result;
 
 handle_geometry_key:
-  json_scan_start(je, je->s.cs, geometry_start, je->s.str_end);
-  return create_from_json(buffer, je, er_on_3D, res);
+
+  result= create_from_json(buffer, &argje, er_on_3D, res);
+  // je .  argje...
+
+  return result;
 
 err_return:
   return NULL;
@@ -952,7 +961,6 @@ static int read_point_from_json(json_engine_t *je, bool er_on_3D,
 
   while (json_scan_next(je) == 0 && je->state != JST_ARRAY_END)
   {
-    DBUG_ASSERT(je->state == JST_VALUE);
     if (json_read_value(je))
       return 1;
 
@@ -979,8 +987,6 @@ bad_coordinates:
 bool Gis_point::init_from_json(json_engine_t *je, bool er_on_3D, String *wkb)
 {
   double x, y;
-  if (json_read_value(je))
-    return TRUE;
 
   if (je->value_type != JSON_VALUE_ARRAY)
   {
@@ -1270,9 +1276,6 @@ bool Gis_line_string::init_from_json(json_engine_t *je, bool er_on_3D,
   uint32 np_pos= wkb->length();
   Gis_point p;
 
-  if (json_read_value(je))
-    return TRUE;
-
   if (je->value_type != JSON_VALUE_ARRAY)
   {
     je->s.error= GEOJ_INCORRECT_GEOJSON;
@@ -1286,6 +1289,10 @@ bool Gis_line_string::init_from_json(json_engine_t *je, bool er_on_3D,
   while (json_scan_next(je) == 0 && je->state != JST_ARRAY_END)
   {
     DBUG_ASSERT(je->state == JST_VALUE);
+    /* separator between array elements */
+    if (je->value_type != JSON_VALUE_ARRAY)
+      if (!json_scan_next(je))
+        return TRUE;
 
     if (p.init_from_json(je, er_on_3D, wkb))
       return TRUE;
@@ -1663,9 +1670,6 @@ bool Gis_polygon::init_from_json(json_engine_t *je, bool er_on_3D, String *wkb)
   uint32 n_linear_rings= 0;
   uint32 lr_pos= wkb->length();
   int closed;
-
-  if (json_read_value(je))
-    return TRUE;
 
   if (je->value_type != JSON_VALUE_ARRAY)
   {
@@ -2180,9 +2184,6 @@ bool Gis_multi_point::init_from_json(json_engine_t *je, bool er_on_3D,
   uint32 np_pos= wkb->length();
   Gis_point p;
 
-  if (json_read_value(je))
-    return TRUE;
-
   if (je->value_type != JSON_VALUE_ARRAY)
   {
     je->s.error= GEOJ_INCORRECT_GEOJSON;
@@ -2541,9 +2542,6 @@ bool Gis_multi_line_string::init_from_json(json_engine_t *je, bool er_on_3D,
 {
   uint32 n_line_strings= 0;
   uint32 ls_pos= wkb->length();
-
-  if (json_read_value(je))
-    return TRUE;
 
   if (je->value_type != JSON_VALUE_ARRAY)
   {
@@ -2942,9 +2940,6 @@ bool Gis_multi_polygon::init_from_json(json_engine_t *je, bool er_on_3D,
   uint32 n_polygons= 0;
   int np_pos= wkb->length();
   Gis_polygon p;
-
-  if (json_read_value(je))
-    return TRUE;
 
   if (je->value_type != JSON_VALUE_ARRAY)
   {
@@ -3428,9 +3423,6 @@ bool Gis_geometry_collection::init_from_json(json_engine_t *je, bool er_on_3D,
   Geometry_buffer buffer;
   Geometry *g;
 
-  if (json_read_value(je))
-    return TRUE;
-
   if (je->value_type != JSON_VALUE_ARRAY)
   {
     je->s.error= GEOJ_INCORRECT_GEOJSON;
@@ -3443,15 +3435,10 @@ bool Gis_geometry_collection::init_from_json(json_engine_t *je, bool er_on_3D,
 
   while (json_scan_next(je) == 0 && je->state != JST_ARRAY_END)
   {
-    json_engine_t sav_je= *je;
-
-    DBUG_ASSERT(je->state == JST_VALUE);
-
-    if (!(g= create_from_json(&buffer, je, er_on_3D, wkb)))
+    if (je->state == JST_VALUE)
       return TRUE;
 
-    *je= sav_je;
-    if (json_skip_array_item(je))
+    if (!(g= create_from_json(&buffer, je, er_on_3D, wkb)))
       return TRUE;
 
     n_objects++;
