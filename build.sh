@@ -28,6 +28,7 @@ usage() {
     echo "  -S          Start MariaDB after build"
     echo "  -n          No clean: keep existing data files"
     echo "  -D          Install build prerequisites (requires root/sudo)"
+    echo "  -u          Build unit tests"
     echo "  -R          Use gcc-toolset-\${GCC_VERSION} on Rocky 8"
     echo "  -h          Show this help"
     exit 0
@@ -39,9 +40,10 @@ NO_CLEAN=false
 BUILD_PACKAGES=false
 INSTALL_DEPS=false
 GCC_TOOLSET=false
+UNIT_TESTS=false
 OS=""
 
-while getopts "t:d:j:cpSnDRh" opt; do
+while getopts "t:d:j:cpSnDRuh" opt; do
     case $opt in
         t) BUILD_TYPE="$OPTARG" ;;
         d) OS="$OPTARG" ;;
@@ -52,6 +54,7 @@ while getopts "t:d:j:cpSnDRh" opt; do
         n) NO_CLEAN=true ;;
         D) INSTALL_DEPS=true ;;
         R) GCC_TOOLSET=true ;;
+        u) UNIT_TESTS=true ;;
         h) usage ;;
         *) usage ;;
     esac
@@ -211,6 +214,10 @@ construct_cmake_flags() {
 
     if [[ "$BUILD_TYPE" == "Debug" ]]; then
         MDB_CMAKE_FLAGS+=(-DDUCKDB_WERROR=ON)
+    fi
+
+    if [[ $UNIT_TESTS = true ]]; then
+        MDB_CMAKE_FLAGS+=(-DDUCKDB_UNIT_TESTS=ON)
     fi
 
     if [[ $BUILD_PACKAGES = true ]]; then
