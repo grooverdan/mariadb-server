@@ -31,16 +31,19 @@ Tables created with `ENGINE=DuckDB` store data in DuckDB's native format. Querie
 
 ## Building
 
-The engine is built as part of the MariaDB server tree. It lives under `storage/duckdb/` and uses `ExternalProject_Add` to build upstream DuckDB v1.5.2 from source (git submodule at `third_parties/duckdb/`).
+The engine is built as part of the MariaDB server tree. It lives under `storage/duckdb/` and uses `ExternalProject_Add` to build DuckDB v1.5.2 from source.
 
-Until the patch is accepted into MariaDB upstream, clone one of the prepared branches from the server fork:
+Until the patch is accepted into MariaDB upstream, clone one of the prepared branches from the server fork and then clone the plugin:
 
 ```bash
 # Pick the branch matching your target MariaDB version
-git clone --recurse-submodules -b bb-11.4-duckdb https://github.com/drrtuy/mdb-server.git mariadb-server
+git clone -b bb-11.4-duckdb https://github.com/drrtuy/mdb-server.git mariadb-server
 # or: -b 11.8-duckdb
 # or: -b 12.3-duckdb
 cd mariadb-server
+
+# Clone the DuckDB engine plugin
+git clone --recurse-submodules https://github.com/MariaDB/duckdb-engine storage/duckdb/duckdb
 
 # Install build dependencies (requires root)
 ./storage/duckdb/duckdb/build.sh -D
