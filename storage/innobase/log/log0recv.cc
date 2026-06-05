@@ -3768,7 +3768,8 @@ bool log_t::archived_switch_recovery_prepare(lsn_t lsn) noexcept
   static_assert(int{READ_WRITE} == 0, "");
   static_assert(int{READ_ONLY} == 1, "");
   resize_log.m_file= os_file_create_func(fn, OS_FILE_OPEN, OS_LOG_FILE,
-                                         int{i->second.access} > 0, &success);
+                                         int{i->second.access > 0} ||
+                                         recv_sys.rpo, &success);
   ut_ad(success == (resize_log.m_file != OS_FILE_CLOSED));
   if (resize_log.m_file == OS_FILE_CLOSED)
   {
