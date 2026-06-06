@@ -19,7 +19,7 @@ DuckDB storage engine plugin for MariaDB. Creates tables with `ENGINE=DuckDB` th
 ./build.sh -p -t RelWithDebInfo
 ```
 
-The build directory is created as a sibling: `../DuckdbBuildOf_<source_dir_name>/`. DuckDB itself is built from the submodule at `third_parties/duckdb/` via `ExternalProject_Add` and merged into a single `libduckdb_bundle.a`.
+The build directory is created as a sibling: `../DuckdbBuildOf_<source_dir_name>/`. DuckDB itself is built from source at `third_parties/duckdb/` via `ExternalProject_Add` and merged into a single `libduckdb_bundle.a`.
 
 ## Tests (MTR)
 
@@ -68,9 +68,9 @@ All engine code is in the `myduck` namespace (except `ha_duckdb` which is in glo
 
 All generated SQL must use **double quotes** for identifiers (DuckDB follows SQL standard), not backticks. The `SELECT_LEX::print()` output from MariaDB uses backticks and must be post-processed. See `docs/mariadb-duckdb-incompatibilities.md` for known function name rewrites and type mapping issues.
 
-### DuckDB submodule and patches
+### DuckDB source and patches
 
-DuckDB source is at `third_parties/duckdb/` (git submodule). Patches in `patches/` are applied via `PATCH_COMMAND` in `cmake/duckdb.cmake`. The build produces a static library; `_GLIBCXX_DEBUG` is explicitly undefined in CMakeLists.txt to avoid ABI mismatch with MariaDB's debug build.
+DuckDB source is at `third_parties/duckdb/` (git submodule). No patches are applied — all compatibility is handled at runtime via `duckdb_mysql_compat.cc`. The build produces a static library; `_GLIBCXX_DEBUG` is explicitly undefined in CMakeLists.txt to avoid ABI mismatch with MariaDB's debug build.
 
 ### Configuration
 

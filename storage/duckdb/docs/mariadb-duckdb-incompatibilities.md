@@ -83,6 +83,26 @@ SELECT pushdown uses the original SQL text from `THD::query()`. MariaDB-specific
 | `HIGH_PRIORITY`, `SQL_NO_CACHE`, `SQL_CACHE`, `SQL_BUFFER_RESULT`, `SQL_SMALL_RESULT`, `SQL_BIG_RESULT`, `SQL_CALC_FOUND_ROWS` | -- | Stripped |
 | `FORCE INDEX(...)`, `USE INDEX(...)`, `IGNORE INDEX(...)` | -- | Stripped |
 
+### Known unhandled cases (currently cause query failures)
+
+These MariaDB constructs are **not yet rewritten** and fail when pushed down. Because pushdown forwards the original `THD::query()` text (only backticks are converted to double quotes), MariaDB-specific token semantics survive into DuckDB. Discovered while running an analytical query set (402 queries) against DuckDB-engine tables.
+
+| MariaDB construct | Sent to DuckDB as | DuckDB result | Root cause |
+|---|---|---|---|
+| Double-quoted **string literal**, e.g. `JSON_OBJECT("month", ...)` | `"month"` (verbatim) | `Binder Error: Referenced column "month" not found` | MariaDB without `ANSI_QUOTES` treats `"x"` as a string literal; DuckDB treats `"x"` as an identifier. The forwarded literal is read as a column reference. |
+| Unquoted column **alias equal to a DuckDB reserved keyword**, e.g. `SELECT expr name` / `SELECT expr year` | `... name` / `... year` (verbatim) | `Parser Error: syntax error at or near "name"` | DuckDB forbids reserved keywords as unquoted identifiers. `AS name` or `"name"` work; bare `name` / `year` / `month` do not. This is why most implicit aliases pass but keyword aliases fail. |
+
+Reproductions (against any DuckDB-engine table `t`):
+
+```sql
+SELECT JSON_OBJECT("k", 1) FROM t;   -- Binder Error: column "k" not found
+SELECT JSON_OBJECT('k', 1) FROM t;   -- OK
+SELECT col name FROM t;              -- Parser Error at "name"
+SELECT col AS name FROM t;           -- OK
+```
+
+**Fix direction**: in `ha_duckdb_pushdown.cc`, convert double-quoted string literals to single-quoted form and quote (or `AS`-prefix) aliases that are DuckDB reserved keywords. Both require lexer-aware handling of the query text, not naive replacement — `backticks_to_double_quotes()` already produces legitimate double-quoted identifiers that must not be altered.
+
 ---
 
 ## 4. Data Type Handling

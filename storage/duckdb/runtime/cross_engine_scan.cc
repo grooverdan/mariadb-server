@@ -254,6 +254,7 @@ struct MdbScanBindData : duckdb::FunctionData
 struct MdbScanGlobalState : duckdb::GlobalTableFunctionState
 {
   bool scan_started= false;
+  bool rnd_inited= false;
   bool finished= false;
   TABLE *table= nullptr;
   duckdb::vector<duckdb::idx_t> column_ids;
@@ -303,6 +304,35 @@ mdb_scan_init_global(duckdb::ClientContext &context,
   state->column_ids= input.column_ids;
   state->table_key= bind_data.table_key;
   state->where_sql= bind_data.where_sql;
+
+  if ((myduck::duckdb_log_options & LOG_DUCKDB_QUERY) && input.filters)
+  {
+    TABLE *tbl= bind_data.table;
+    for (auto &entry : input.filters->filters)
+    {
+      duckdb::idx_t proj_idx= entry.first;
+      std::string col_name= "?";
+      /* Map projected index → original column via column_ids → field name */
+      if (proj_idx < input.column_ids.size())
+      {
+        duckdb::idx_t orig_idx= input.column_ids[proj_idx];
+        uint i= 0;
+        for (Field **f= tbl->field; *f; f++, i++)
+        {
+          if (i == orig_idx)
+          {
+            col_name= (*f)->field_name.str;
+            break;
+          }
+        }
+      }
+      std::string desc= entry.second->ToString(col_name);
+      sql_print_information(
+          "CROSS-ENGINE: DuckDB filter[%llu] col='%s': %s",
+          (ulonglong) proj_idx, col_name.c_str(), desc.c_str());
+    }
+  }
+
   return duckdb::unique_ptr<duckdb::GlobalTableFunctionState>(
       std::move(state));
 }
@@ -334,8 +364,14 @@ static void mdb_scan_function(duckdb::ClientContext &context,
     if (!where_sql.empty() || true)  /* Always use fiber for MVP */
     {
       duckdb::vector<duckdb::LogicalType> col_types;
+      uint nfields= tbl->s->fields;
       for (auto col_idx : state.column_ids)
-        col_types.push_back(field_to_logical_type(tbl->field[col_idx]));
+      {
+        if (col_idx >= nfields)
+          col_types.push_back(duckdb::LogicalType::BIGINT);
+        else
+          col_types.push_back(field_to_logical_type(tbl->field[col_idx]));
+      }
 
       state.fiber= std::make_unique<FiberScanState>();
       if (state.fiber->init(tbl, state.column_ids, col_types, where_sql))
@@ -407,11 +443,15 @@ static void mdb_scan_function(duckdb::ClientContext &context,
   if (tbl->in_use && tbl->in_use != prev_thd)
     set_current_thd(tbl->in_use);
 
-  if (!state.scan_started)
+  if (!state.rnd_inited)
   {
+    uint nf= tbl->s->fields;
     bitmap_clear_all(tbl->read_set);
     for (auto col_idx : state.column_ids)
-      bitmap_set_bit(tbl->read_set, static_cast<uint>(col_idx));
+    {
+      if (col_idx < nf)
+        bitmap_set_bit(tbl->read_set, static_cast<uint>(col_idx));
+    }
 
     if (tbl->file->ha_rnd_init(true))
     {
@@ -421,10 +461,12 @@ static void mdb_scan_function(duckdb::ClientContext &context,
         set_current_thd(prev_thd);
       return;
     }
+    state.rnd_inited= true;
   }
 
   duckdb::idx_t count= 0;
   duckdb::idx_t ncols= state.column_ids.size();
+  uint nfields= tbl->s->fields;
 
   while (count < STANDARD_VECTOR_SIZE)
   {
@@ -438,6 +480,11 @@ static void mdb_scan_function(duckdb::ClientContext &context,
 
     for (duckdb::idx_t i= 0; i < ncols; i++)
     {
+      if (state.column_ids[i] >= nfields)
+      {
+        output.data[i].SetValue(count, duckdb::Value());
+        continue;
+      }
       Field *field= tbl->field[state.column_ids[i]];
       duckdb::Value val= field_to_duckdb_value(field);
       output.data[i].SetValue(count, val);
@@ -491,7 +538,7 @@ void register_cross_engine_scan(duckdb::DatabaseInstance &db)
                                  mdb_scan_function, mdb_scan_bind,
                                  mdb_scan_init_global);
   mdb_scan.projection_pushdown= true;
-  mdb_scan.filter_pushdown= false;
+  mdb_scan.filter_pushdown= true;
 
   duckdb::CreateTableFunctionInfo info(std::move(mdb_scan));
   auto &catalog= duckdb::Catalog::GetSystemCatalog(db);

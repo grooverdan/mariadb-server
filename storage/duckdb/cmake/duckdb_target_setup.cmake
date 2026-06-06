@@ -7,6 +7,7 @@ MACRO(duckdb_setup_target _target)
   SET_TARGET_PROPERTIES(${_target} PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
   )
   # libduckdb_bundle.a is built without debug STL wrappers.
   # -U unconditionally undefines the macro no matter how it was inherited

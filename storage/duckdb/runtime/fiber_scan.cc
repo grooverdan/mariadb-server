@@ -233,20 +233,39 @@ FiberScanState::~FiberScanState()
    Build synthetic SELECT from column_ids + WHERE
    ---------------------------------------------------------------- */
 
+static std::string escape_backticks(const char *s)
+{
+  std::string out;
+  for (; *s; s++)
+  {
+    if (*s == '`')
+      out+= "``";
+    else
+      out+= *s;
+  }
+  return out;
+}
+
 static std::string build_synthetic_select(FiberScanState *state)
 {
   std::string sql= "SELECT ";
 
   bool first= true;
+  uint nfields= state->table->s->fields;
   for (auto col_idx : state->column_ids)
   {
     if (!first)
       sql+= ", ";
     first= false;
 
+    if (col_idx >= nfields)
+    {
+      sql+= "NULL";
+      continue;
+    }
     Field *field= state->table->field[col_idx];
     sql+= '`';
-    sql+= field->field_name.str;
+    sql+= escape_backticks(field->field_name.str);
     sql+= '`';
   }
 
@@ -254,9 +273,9 @@ static std::string build_synthetic_select(FiberScanState *state)
     sql+= "*";
 
   sql+= " FROM `";
-  sql+= state->db_name;
+  sql+= escape_backticks(state->db_name.c_str());
   sql+= "`.`";
-  sql+= state->table_name;
+  sql+= escape_backticks(state->table_name.c_str());
   sql+= '`';
 
   if (!state->where_clause.empty())

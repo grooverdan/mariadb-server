@@ -31,16 +31,19 @@ Tables created with `ENGINE=DuckDB` store data in DuckDB's native format. Querie
 
 ## Building
 
-The engine is built as part of the MariaDB server tree. It lives under `storage/duckdb/` and uses `ExternalProject_Add` to build upstream DuckDB v1.5.2 from source (git submodule at `third_parties/duckdb/`).
+The engine is built as part of the MariaDB server tree. It lives under `storage/duckdb/` and uses `ExternalProject_Add` to build DuckDB v1.5.2 from source.
 
-Until the patch is accepted into MariaDB upstream, clone one of the prepared branches from the server fork:
+Until the patch is accepted into MariaDB upstream, clone one of the prepared branches from the server fork and then clone the plugin:
 
 ```bash
 # Pick the branch matching your target MariaDB version
-git clone --recurse-submodules -b bb-11.4-duckdb https://github.com/drrtuy/mdb-server.git mariadb-server
+git clone -b bb-11.4-duckdb https://github.com/drrtuy/mdb-server.git mariadb-server
 # or: -b 11.8-duckdb
 # or: -b 12.3-duckdb
 cd mariadb-server
+
+# Clone the DuckDB engine plugin
+git clone --recurse-submodules https://github.com/MariaDB/duckdb-engine storage/duckdb/duckdb
 
 # Install build dependencies (requires root)
 ./storage/duckdb/duckdb/build.sh -D
@@ -65,14 +68,18 @@ cd mariadb-server
 
 ## Cross-Engine Queries
 
-The engine supports cross-engine joins — a single `SELECT` can combine DuckDB tables with tables from other engines (e.g. InnoDB). When the query planner detects a mix of engines, it:
+The engine supports cross-engine joins — a single `SELECT` can combine DuckDB tables with tables from other engines (e.g. InnoDB). When the query planner detects a mix of engines, the `select_handler` does the following:
 
-1. Opens the non-DuckDB tables via MariaDB's handler API.
-2. Registers them in a thread-local table registry.
+1. Opens the non-DuckDB tables via MariaDB's handler API and registers them in a thread-local table registry.
+2. Derives a per-table predicate from the query's `WHERE` (via `make_cond_for_table`) and registers it alongside each external table.
 3. Pushes the **entire query** — including all `WHERE`, `JOIN`, `GROUP BY`, and `ORDER BY` clauses — down to DuckDB as a single SQL statement.
-4. DuckDB's replacement scan callback transparently redirects references to non-DuckDB tables to the `_mdb_scan` table function, which streams rows from the MariaDB handler into DuckDB's vectorized pipeline.
+4. DuckDB's replacement scan callback transparently redirects references to non-DuckDB tables to the `_mdb_scan` table function.
 
-Because the full query text (with filters) is pushed down, DuckDB's optimizer can apply predicates, reorder joins, and build hash tables over the streamed InnoDB rows — the non-DuckDB side is a full table scan, but DuckDB handles all the filtering and aggregation internally.
+The `_mdb_scan` table function does **not** loop over the handler directly. On its first call it lazily spawns a **cooperative fiber** (stack-switching runtime borrowed from `libmariadb`) running on a dedicated background `THD`. Inside the fiber it builds a synthetic, projection- and predicate-pushed
+`SELECT <needed columns> FROM <db>.<table> [WHERE <pushed predicate>]`
+and executes it through the **full MariaDB pipeline** (`lex_start` → `parse_sql` → `mysql_execute_command`). A custom `select_result_interceptor` (`select_to_duckdb`) converts each result row's `Item`s into a DuckDB `DataChunk`; when a chunk fills (`STANDARD_VECTOR_SIZE`) the fiber **yields** back to DuckDB, which consumes the chunk and resumes the fiber for the next batch.
+
+Because the external scan runs through `mysql_execute_command`, it uses the **MariaDB optimizer and all available access paths** (index range/ref access, etc.), and the pushed `WHERE` predicate is evaluated by MariaDB *before* rows reach DuckDB. On the DuckDB side, the full query text lets DuckDB's optimizer reorder joins, build hash tables, and run all aggregation/sorting over the streamed rows. A direct `ha_rnd_next` loop is retained only as a fallback when no fiber is used.
 
 This means queries like the following just work:
 
@@ -84,8 +91,7 @@ SELECT d.id, d.amount, i.name
  WHERE d.amount > 1000;
 ```
 
-DuckDB handles the join, aggregation, and sorting; InnoDB rows are streamed in on demand. No data copying or ETL is required.
-InnoDB and other engines tables are scanned via `ha_rnd_next` and predicate pushdown functionality is WIP.
+DuckDB handles the join, aggregation, and sorting; InnoDB rows are produced on demand by a fiber-driven MariaDB query. No data copying or ETL is required.
 
 ## Current Limitations
 
@@ -94,7 +100,7 @@ InnoDB and other engines tables are scanned via `ha_rnd_next` and predicate push
 - **Strict GROUP BY** — DuckDB rejects `SELECT` columns not in `GROUP BY` and not aggregated, even when MariaDB's `sql_mode` allows it.
 - **XA transactions** — `XA PREPARE` is not supported by the engine.
 - **Collations** — MariaDB UCA-based collation rules are approximated via DuckDB's built-in `NOCASE`/`NOACCENT` collations for UTF-8 charsets; non-UTF8 charsets fall back to binary comparison. See [`docs/collation-mapping.md`](docs/collation-mapping.md) for the full mapping and known gaps.
-- **Cross-engine scan is yet single-threaded** — external (non-DuckDB) tables are scanned via `ha_rnd_next` on a single thread; only the DuckDB side of the query is parallelized.
+- **Cross-engine scan is yet single-threaded** — each external (non-DuckDB) table is produced by a single fiber-driven MariaDB query (`_mdb_scan` reports `MaxThreads() == 1`); only the DuckDB side of the query is parallelized.
 - **ALTER COLUMN DROP DEFAULT** — not propagated to DuckDB catalog.
 - **Timezone propagation** — `TIMESTAMP` columns are stored as `TIMESTAMPTZ`; timezone must be set consistently between MariaDB and DuckDB contexts to avoid shifts.
 
