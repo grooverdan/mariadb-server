@@ -8536,7 +8536,11 @@ inline void TABLE::use_all_stored_columns()
   bitmap_set_all(read_set);
   if (Field **vf= vfield)
     for (; *vf; vf++)
-      bitmap_clear_bit(read_set, (*vf)->field_index);
+    {
+      if (!(*vf)->stored_in_db())
+        bitmap_clear_bit(read_set, (*vf)->field_index);
+    }
+
 }
 
 #endif /* SQL_ITEM_INCLUDED */
