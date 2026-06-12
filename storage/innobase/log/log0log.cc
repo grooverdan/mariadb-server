@@ -618,7 +618,8 @@ void log_t::set_buffered(bool buffered) noexcept
       high_level_read_only)
     return;
   log_resize_acquire();
-  if (!resize_in_progress() && is_opened() && bool(log_buffered) != buffered)
+  if (!resize_in_progress() && is_opened() && !resize_log.is_opened() &&
+      bool(log_buffered) != buffered)
   {
     if (const dberr_t err= log.close())
       log_close_failed(err);
@@ -640,7 +641,7 @@ void log_t::set_write_through(bool write_through)
   if (is_mmap() || high_level_read_only || recv_sys.rpo)
     return;
   log_resize_acquire();
-  if (!resize_in_progress() && is_opened() &&
+  if (!resize_in_progress() && is_opened() && !resize_log.is_opened() &&
       bool(log_write_through) != write_through)
   {
     os_file_close_func(log.m_file);
