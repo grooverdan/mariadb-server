@@ -18747,6 +18747,8 @@ buffer_pool_load_abort(
 static void innodb_log_file_buffering_update(THD *, st_mysql_sys_var*,
                                              void *, const void *save)
 {
+  /* MDEV-36828 TODO: On failure, report which other setting
+  conflicted with the request */
   mysql_mutex_unlock(&LOCK_global_system_variables);
   log_sys.set_buffered(*static_cast<const my_bool*>(save));
   mysql_mutex_lock(&LOCK_global_system_variables);
@@ -18756,6 +18758,8 @@ static void innodb_log_file_buffering_update(THD *, st_mysql_sys_var*,
 static void innodb_log_file_write_through_update(THD *, st_mysql_sys_var*,
                                                  void *, const void *save)
 {
+  /* MDEV-36828 TODO: On failure, report which other setting
+  conflicted with the request */
   mysql_mutex_unlock(&LOCK_global_system_variables);
   log_sys.set_write_through(*static_cast<const my_bool*>(save));
   mysql_mutex_lock(&LOCK_global_system_variables);
@@ -19703,6 +19707,8 @@ static MYSQL_SYSVAR_BOOL(data_file_write_through, fil_system.write_through,
 static void innodb_log_archive_update(THD *thd, st_mysql_sys_var*,
                                       void *, const void *save) noexcept
 {
+  /* MDEV-36828 TODO: On failure, report which other setting
+  conflicted with the request */
   log_sys.set_archive(*static_cast<const my_bool*>(save), thd);
 }
 
