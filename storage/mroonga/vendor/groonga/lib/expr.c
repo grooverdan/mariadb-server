@@ -3544,9 +3544,7 @@ grn_expr_exec(grn_ctx *ctx, grn_obj *expr, int nargs)
           POP1(value);
           la0 = GRN_INT32_VALUE(value);
           POP1(value);
-          ln1 = GRN_INT32_VALUE(value);
           POP1(value);
-          la1 = GRN_INT32_VALUE(value);
           POP1(value);
           ln2 = GRN_INT32_VALUE(value);
           POP1(value);
@@ -6028,14 +6026,12 @@ grn_table_select_index_not_equal(grn_ctx *ctx,
         processed = GRN_TRUE;
       } else {
         uint32_t sid;
-        int32_t weight __attribute__((unused));
         grn_ii *ii = (grn_ii *)index;
         grn_ii_cursor *ii_cursor;
 
         grn_table_select_index_report(ctx, "[not-equal]", index);
 
         sid = GRN_UINT32_VALUE_AT(&(si->wv), 0);
-        weight = GRN_INT32_VALUE_AT(&(si->wv), 1);
         ii_cursor = grn_ii_cursor_open(ctx, ii, tid,
                                        GRN_ID_NIL, GRN_ID_MAX,
                                        ii->n_elements, 0);
