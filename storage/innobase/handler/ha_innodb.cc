@@ -5799,7 +5799,7 @@ ha_innobase::open(const char* name, int, uint)
 			" defined columns in InnoDB, but " << n_fields
 			<< " columns in MariaDB. Please check"
 			" INFORMATION_SCHEMA.INNODB_SYS_COLUMNS and"
-			" https://mariadb.com/kb/en/innodb-data-dictionary-troubleshooting/"
+			" https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-troubleshooting/innodb-data-dictionary-troubleshooting"
 			" for how to resolve the issue.";
 
 		/* Mark this table as corrupted, so the drop table
@@ -20926,11 +20926,11 @@ ib_errf(
 /* Keep the first 16 characters as-is, since the url is sometimes used
 as an offset from this.*/
 const char*	TROUBLESHOOTING_MSG =
-	"Please refer to https://mariadb.com/kb/en/innodb-troubleshooting/"
+	"Please refer to https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-troubleshooting"
 	" for how to resolve the issue.";
 
 const char*	TROUBLESHOOT_DATADICT_MSG =
-	"Please refer to https://mariadb.com/kb/en/innodb-data-dictionary-troubleshooting/"
+	"Please refer to https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-troubleshooting/innodb-data-dictionary-troubleshooting"
 	" for how to resolve the issue.";
 
 const char*	BUG_REPORT_MSG =
@@ -20938,22 +20938,22 @@ const char*	BUG_REPORT_MSG =
 
 const char*	FORCE_RECOVERY_MSG =
 	"Please refer to "
-	"https://mariadb.com/kb/en/library/innodb-recovery-modes/"
+	"https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-troubleshooting/innodb-recovery-modes"
 	" for information about forcing recovery.";
 
 const char*	OPERATING_SYSTEM_ERROR_MSG =
 	"Some operating system error numbers are described at"
-	" https://mariadb.com/kb/en/library/operating-system-error-codes/";
+	" https://mariadb.com/docs/server/reference/error-codes/operating-system-error-codes";
 
 const char*	FOREIGN_KEY_CONSTRAINTS_MSG =
-	"Please refer to https://mariadb.com/kb/en/library/foreign-keys/"
+	"Please refer to https://mariadb.com/docs/server/ha-and-performance/optimization-and-tuning/optimization-and-indexes/foreign-keys"
 	" for correct foreign key definition.";
 
 const char*	SET_TRANSACTION_MSG =
-	"Please refer to https://mariadb.com/kb/en/library/set-transaction/";
+	"Please refer to https://mariadb.com/docs/server/reference/sql-statements/administrative-sql-statements/set-commands/set-transaction";
 
 const char*	INNODB_PARAMETERS_MSG =
-	"Please refer to https://mariadb.com/kb/en/library/innodb-system-variables/";
+	"Please refer to https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-system-variables";
 
 /**********************************************************************
 Converts an identifier from my_charset_filename to UTF-8 charset.
@@ -21144,7 +21144,7 @@ ib_push_frm_error(
 			" Have you mixed up "
 			".frm files from different "
 			"installations? See "
-			"https://mariadb.com/kb/en/innodb-troubleshooting/\n",
+			"https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-troubleshooting",
 			ib_table->name.m_name);
 
 		if (push_warning) {
@@ -21184,7 +21184,7 @@ ib_push_frm_error(
 			"indexes inside InnoDB, which "
 			"is different from the number of "
 			"indexes %u defined in the .frm file. See "
-			"https://mariadb.com/kb/en/innodb-troubleshooting/\n",
+			"https://mariadb.com/docs/server/server-usage/storage-engines/innodb/innodb-troubleshooting",
 			ib_table->name.m_name, n_keys,
 			table->s->keys);
 

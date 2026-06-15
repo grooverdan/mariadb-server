@@ -246,7 +246,7 @@ trx_purge_add_undo_to_history(const trx_t* trx, trx_undo_t*& undo, mtr_t* mtr)
 
   if (trx->mysql_log_file_name && *trx->mysql_log_file_name)
     /* Update the latest binlog name and offset if log_bin=ON or this
-    is a replica. */
+    is a slave. */
     trx_rseg_update_binlog_offset(rseg_header, trx->mysql_log_file_name,
                                   trx->mysql_log_offset, mtr);
 

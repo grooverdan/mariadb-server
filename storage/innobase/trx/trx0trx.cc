@@ -1265,7 +1265,7 @@ static void trx_flush_log_if_needed(lsn_t lsn, trx_t *trx)
   if (log_sys.get_flushed_lsn(std::memory_order_relaxed) >= lsn)
     return;
 
-  ut_ad(!trx->mysql_thd || !trx->mysql_thd->tx_read_only);
+  ut_ad(!trx->read_only);
 
   const bool flush= srv_flush_log_at_trx_commit & 1;
   if (!log_sys.is_mmap())
