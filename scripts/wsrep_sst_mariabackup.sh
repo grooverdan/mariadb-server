@@ -24,7 +24,7 @@ set -ue
 # This is a reference script for mariadb-backup-based state snapshot transfer.
 
 # Documentation:
-# https://mariadb.com/kb/en/mariabackup-overview/
+# https://mariadb.com/docs/server/server-usage/backup-and-restore/mariadb-backup/mariadb-backup-overview
 # Make sure to read that before proceeding!
 
 . $(dirname "$0")/wsrep_sst_common
