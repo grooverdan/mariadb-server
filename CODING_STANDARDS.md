@@ -52,6 +52,19 @@ New features should be based against the latest MariaDB development branch, whic
 Bug fixes should be based against the earliest maintained branch in which the bug can be reproduced.
 The earliest maintained branch is found at https://mariadb.org/about/#maintenance-policy.
 
+## Terminology
+
+In replication, the standard terminology is to use "master" for the server
+writing the binlog, and "slave" for the server replicating the binlog. This
+terminology must be used consistently everywhere in the git repository,
+including source code, comments, error messages, commit messages, test
+cases, documentation, etc.
+
+The words "source" and "replica" may _only_ be used in connection with
+aliases for the standard commands (like SHOW REPLICA STATUS), mainly for
+MySQL compatibility. The word "primary" to refer to a master must _never_ be
+used.
+
 ## Coding Style (C / C++ files)
 
 Everyone has a preferred coding style, there is no real correct style for all projects around the world.
