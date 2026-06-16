@@ -7857,6 +7857,8 @@ int ha_partition::handle_unordered_next(uchar *buf, bool is_next_same)
     m_part_spec.end_part : m_part_spec.start_part;
   DBUG_ENTER("ha_partition::handle_unordered_next");
 
+  if (i == NO_CURRENT_PART_ID)
+    DBUG_RETURN(HA_ERR_END_OF_FILE);
   if (i >= m_tot_parts)
   {
     /* Should never happen! */

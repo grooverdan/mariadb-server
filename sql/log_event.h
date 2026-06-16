@@ -608,6 +608,18 @@ class String;
 */
 #define HB_SUB_HEADER_LEN 8
 
+// Len of "fragment %u / %u"
+#define PARTIAL_ROWS_EVENT_BAD_FRAGMENT_ERRSTR_LEN                            \
+  (sizeof("fragment ") + 10 + sizeof(" / ") + 10 + 1)
+
+// Len of "row data size %" PRIu64
+#define PARTIAL_ROWS_EVENT_BAD_ORIG_SIZE_ERRSTR_LEN                           \
+  (sizeof("row data size ") + 20 + 1)
+
+// Len of "type %s" where %s is Log_event::get_type_str()
+constexpr size_t MAX_LOG_EVENT_TYPE_STR_LEN= 25; // Log_event::get_type_str()
+#define PARTIAL_ROWS_EVENT_BAD_EV_TYPE_ERRSTR_LEN                             \
+  (sizeof("type ") + MAX_LOG_EVENT_TYPE_STR_LEN + 1)
 
 /**
   @enum Log_event_type
@@ -6107,6 +6119,7 @@ public:
   */
   uint32_t last_fragment_seen;
 
+  rpl_group_info *rgi;
 
   /*
     Memory buffer, initialized to the maximum size of the Rows_log_event
@@ -6115,7 +6128,11 @@ public:
   */
   char *rows_ev_buf_builder_ptr;
 
-  rpl_group_info *rgi;
+  /*
+    Size of rows_ev_buf_builder_ptr (i.e. the original_event_size taken from
+    the first fragment in the group)
+  */
+  uint64_t rows_ev_buf_len;
 
   /*
     Total length of the Rows_log_event to construct
@@ -6138,8 +6155,9 @@ public:
   my_bool row_ev_created;
 
   Rows_log_event_assembler(rpl_group_info *rgi, uint32_t total_fragments)
-      : last_fragment_seen(0), rows_ev_buf_builder_ptr(NULL), rgi(rgi),
-        total_fragments(total_fragments), row_ev_created(false){};
+      : last_fragment_seen(0), rgi(rgi), rows_ev_buf_builder_ptr(NULL),
+        rows_ev_buf_len(0), ev_len(0), total_fragments(total_fragments),
+        row_ev_created(false){};
 
   ~Rows_log_event_assembler()
   {
