@@ -3887,7 +3887,12 @@ recv_sys_t::parse_mtr_result recv_sys_t::parse_mmap(bool if_exists)
     }
     recv_warp s{&log_sys.buf[recv_sys.offset]};
     auto r= recv_sys.parse<recv_warp,storing,format>(s,if_exists);
-    log_sys.archived_mmap_switch_recovery_complete();
+    if (UNIV_LIKELY(r != GOT_OOM))
+      log_sys.archived_mmap_switch_recovery_complete();
+    else
+      /* rewind() must have closed the next file when invoking
+      log_sys.set_recovered_lsn(start_lsn) */
+      ut_ad(!log_sys.archived_mmap_switch());
     return r;
   }
   recv_ring s
