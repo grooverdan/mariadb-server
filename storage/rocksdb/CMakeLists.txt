@@ -163,6 +163,8 @@ IF(NOT TARGET rocksdb)
   RETURN()
 ENDIF()
 
+ADD_SUBMODULE(rocksdb)
+
 INSTALL_MANPAGES(rocksdb-engine mariadb-ldb.1 myrocks_hotbackup.1)
 
 CHECK_CXX_SOURCE_COMPILES("
