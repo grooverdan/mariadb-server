@@ -5945,6 +5945,9 @@ public:
     cursor result set materialization.
   */
   bool is_cursor_execution() const;
+
+  uint gconcat_max_len()
+  { return (uint) MY_MIN(variables.group_concat_max_len, variables.max_allowed_packet); }
 };
 
 
