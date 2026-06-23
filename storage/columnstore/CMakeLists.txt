@@ -56,7 +56,8 @@ CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64" OR
 CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
     MY_CHECK_AND_SET_COMPILER_FLAG("-fno-lto")
     SET(PCRE_INCLUDES "${PCRE_INCLUDE_DIRS}")
-    add_subdirectory(columnstore)
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+    add_submodule_subdirectory(columnstore)
 
     IF(TARGET columnstore)
 	# Redo logic in cmake/plugin to prevent the attempted creation of *Symlinks package

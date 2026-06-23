@@ -6248,6 +6248,9 @@ public:
   bool report_collected_unit_results();
   bool init_collecting_unit_results();
   void push_final_warnings();
+
+  uint gconcat_max_len()
+  { return (uint) MY_MIN(variables.group_concat_max_len, variables.max_allowed_packet); }
 };
 
 
