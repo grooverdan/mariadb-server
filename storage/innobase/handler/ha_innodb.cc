@@ -2798,7 +2798,7 @@ static int innobase_close_connection(THD *thd) noexcept
     case TRX_STATE_PREPARED:
       if (trx->has_logged_persistent())
       {
-        trx_disconnect_prepared(trx);
+        trx->disconnect_prepared();
         return 0;
       }
       /* fall through */

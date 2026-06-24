@@ -1589,7 +1589,7 @@ void handle_connections_sockets();
 
 static bool read_init_file(char *file_name);
 pthread_handler_t handle_slave(void *arg);
-static void clean_up(bool print_message);
+static void clean_up(bool print_message, bool use_dummy_thd= false);
 static int test_if_case_insensitive(const char *dir_name);
 
 #ifndef EMBEDDED_LIBRARY
@@ -1998,7 +1998,7 @@ static void mysqld_exit(int exit_code)
 
 #endif /* !EMBEDDED_LIBRARY */
 
-static void clean_up(bool print_message)
+static void clean_up(bool print_message, bool use_dummy_thd)
 {
   DBUG_PRINT("exit",("clean_up"));
   if (cleanup_done++)
@@ -2035,7 +2035,7 @@ static void clean_up(bool print_message)
   lex_free();				/* Free some memory */
   item_create_cleanup();
   cleanup_json_schema_keyword_hash();
-  tdc_start_shutdown();
+  tdc_start_shutdown(use_dummy_thd);
 #ifdef HAVE_REPLICATION
   semi_sync_master_deinit();
 #endif
@@ -6461,7 +6461,7 @@ int mysqld_main(int argc, char **argv)
 
   close_connections();
   ha_pre_shutdown();
-  clean_up(1);
+  clean_up(1, true);
   sd_notify(0, "STATUS=MariaDB server is down");
 
   /* (void) pthread_attr_destroy(&connection_attrib); */
