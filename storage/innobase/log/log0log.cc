@@ -993,7 +993,7 @@ log_t::resize_start_status log_t::resize_start(os_offset_t size, void *thd)
   {
     lsn_t start_lsn;
     ut_ad(!resize_in_progress());
-    ut_ad(!resize_log.is_opened());
+    ut_ad(!resize_log.is_opened() || resize_log.m_file == log.m_file);
     ut_ad(!resize_buf);
     ut_ad(!resize_flush_buf);
     ut_ad(!resize_initiator);

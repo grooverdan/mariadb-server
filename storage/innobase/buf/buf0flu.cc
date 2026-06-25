@@ -1993,8 +1993,6 @@ inline lsn_t log_t::write_checkpoint(lsn_t checkpoint, lsn_t end_lsn) noexcept
               (C[-1] && my_betoh64(C[-1]) < d));
       ut_ad(!*C || offset + o == START_OFFSET - 8);
       *C= my_htobe64(d);
-      if (resize_log.m_file == OS_FILE_CLOSED)
-        resize_log= log; /* Block concurrent set_archive() */
       goto write_checkpoint;
     }
 
@@ -2029,6 +2027,8 @@ inline lsn_t log_t::write_checkpoint(lsn_t checkpoint, lsn_t end_lsn) noexcept
   {
   write_checkpoint:
     ut_ad(!is_mmap());
+    if (resize_log.m_file == OS_FILE_CLOSED)
+      resize_log= log; /* Block concurrent set_archive() */
     latch.wr_unlock();
     log_write_and_flush_prepare();
     resizing= resize_lsn.load(std::memory_order_relaxed);
@@ -2059,7 +2059,18 @@ inline lsn_t log_t::write_checkpoint(lsn_t checkpoint, lsn_t end_lsn) noexcept
   last_checkpoint_lsn= checkpoint;
   this->end_lsn= end_lsn;
   if (!archive)
+  {
     archived_lsn= end_lsn;
+  checkpoint_completed:
+    if (resize_log.m_file == log.m_file)
+    {
+      /* We may have assigned resize_log= log to keep set_archived() out. */
+#ifdef HAVE_PMEM
+      ut_ad(!is_mmap() || (!resize_log.is_opened() && is_mmap_writeable()));
+#endif
+      resize_log.m_file= OS_FILE_CLOSED;
+    }
+  }
   else if (archive_header_was_reset)
   {
     ut_ad(resize_log.m_file != log.m_file);
@@ -2080,14 +2091,8 @@ inline lsn_t log_t::write_checkpoint(lsn_t checkpoint, lsn_t end_lsn) noexcept
     resize_log.close();
 #endif
   }
-  else if (resize_log.m_file == log.m_file)
-  {
-    /* We may have assigned resize_log= log to keep set_archived() out. */
-#ifdef HAVE_PMEM
-    ut_ad(!is_mmap());
-#endif
-    resize_log.m_file= OS_FILE_CLOSED;
-  }
+  else
+    goto checkpoint_completed;
 
   DBUG_PRINT("ib_log", ("checkpoint ended at " LSN_PF ", flushed to " LSN_PF,
                         checkpoint, get_flushed_lsn()));
