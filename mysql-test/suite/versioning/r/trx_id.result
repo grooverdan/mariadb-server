@@ -611,3 +611,21 @@ ERROR HY000: Lock wait timeout exceeded; try restarting transaction
 disconnect con1;
 connection default;
 drop table t1;
+#
+# MDEV-40147 MSAN: use-of-uninitialized-value in my_time_compare
+#
+CREATE TABLE t (
+a INT,
+row_start BIGINT UNSIGNED GENERATED ALWAYS AS ROW START,
+row_end BIGINT UNSIGNED GENERATED ALWAYS AS ROW END,
+PERIOD FOR SYSTEM_TIME (row_start, row_end)
+) WITH SYSTEM VERSIONING ENGINE=InnoDB;
+INSERT INTO t () VALUES ();
+ANALYZE TABLE t PERSISTENT FOR ALL;
+Table	Op	Msg_type	Msg_text
+test.t	analyze	status	Engine-independent statistics collected
+test.t	analyze	status	OK
+SELECT * FROM t WHERE row_end > CURRENT_TIME();
+ERROR HY000: TRX_ID ... not found in `mysql.transaction_registry`
+DROP TABLE t;
+# End of 10.11 tests

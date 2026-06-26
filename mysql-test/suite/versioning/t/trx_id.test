@@ -643,3 +643,26 @@ alter table xx;
 --disconnect con1
 --connection default
 drop table t1;
+
+--echo #
+--echo # MDEV-40147 MSAN: use-of-uninitialized-value in my_time_compare
+--echo #
+
+CREATE TABLE t (
+  a INT,
+  row_start BIGINT UNSIGNED GENERATED ALWAYS AS ROW START,
+  row_end BIGINT UNSIGNED GENERATED ALWAYS AS ROW END,
+  PERIOD FOR SYSTEM_TIME (row_start, row_end)
+) WITH SYSTEM VERSIONING ENGINE=InnoDB;
+
+INSERT INTO t () VALUES ();
+
+ANALYZE TABLE t PERSISTENT FOR ALL;
+
+--replace_regex /TRX_ID \d+/TRX_ID .../
+--error ER_VERS_NO_TRX_ID
+SELECT * FROM t WHERE row_end > CURRENT_TIME();
+
+DROP TABLE t;
+
+--echo # End of 10.11 tests
