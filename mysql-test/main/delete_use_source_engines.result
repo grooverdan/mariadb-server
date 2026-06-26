@@ -3176,7 +3176,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	Extra
 analyze delete from t1 where exists (select 'X' from t1 a where a.c2 = t1.c2)
 and c2 >= 3 order by c2;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	r_rows	filtered	r_filtered	Extra
-1	PRIMARY	a	index	t1_c2	t1_c2	10	NULL	#	16.00	20.00	25.00	Using where; Using index; LooseScan
+1	PRIMARY	a	index	t1_c2	t1_c2	10	NULL	#	16.00	18.75	25.00	Using where; Using index; LooseScan
 1	PRIMARY	t1	ref	t1_c2	t1_c2	5	test.a.c2	#	5.00	4.76	100.00	
 select * from t1;
 c1	c2	c3
@@ -5581,7 +5581,7 @@ id	select_type	table	type	possible_keys	key	key_len	ref	rows	Extra
 analyze delete from t1 where exists (select 'X' from t1 a where a.c2 = t1.c2)
 and c2 >= 3 order by c2;
 id	select_type	table	type	possible_keys	key	key_len	ref	rows	r_rows	filtered	r_filtered	Extra
-1	PRIMARY	a	index	t1_c2	t1_c2	10	NULL	#	16.00	20.00	25.00	Using where; Using index; LooseScan
+1	PRIMARY	a	index	t1_c2	t1_c2	10	NULL	#	16.00	18.75	25.00	Using where; Using index; LooseScan
 1	PRIMARY	t1	ref	t1_c2	t1_c2	5	test.a.c2	#	5.00	5.00	100.00	
 select * from t1;
 c1	c2	c3

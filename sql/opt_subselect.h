@@ -243,8 +243,9 @@ public:
           some key components, that may make us think that loose
           scan will produce more distinct records than it actually will)
         */
-        ulong rpc;
-        if ((rpc= s->table->key_info[key].rec_per_key[max_loose_keypart]))
+        double rpc=
+            s->table->key_info[key].actual_rec_per_key(max_loose_keypart);
+        if (rpc > 0.0) // It's ok to compare like this even if it's double.
           records= records / rpc;
 
         // TODO: previous version also did /2
