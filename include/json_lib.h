@@ -30,6 +30,7 @@ enum json_errors {
   JE_ESCAPING= -6,     /* Error in the escaping. */
 
   JE_DEPTH= -7,        /* The limit on the JSON depth was overrun. */
+  JE_KILLED= -8,       /* Killed during processing */
 };
 
 
