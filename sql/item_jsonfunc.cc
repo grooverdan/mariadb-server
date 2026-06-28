@@ -5349,6 +5349,8 @@ static bool create_hash(json_engine_t *value, HASH *items, bool &item_hash_inite
         init_dynamic_string(&norm_val, NULL, 0, 0))
       return true;
 
+    // TODO
+    // if (json_normalize(value, &norm_val, (const char*) value_start,
     if (json_normalize(&norm_val, (const char*) value_start,
                        value_len, value->s.cs))
     {
@@ -5521,7 +5523,8 @@ String* Item_func_json_array_intersect::val_str(String *str)
       free_root(&hash_root, MYF(0));
     root_inited= false;
     item_hash_inited= false;
-    prepare_json_and_create_hash(&je1, js1);
+    if (prepare_json_and_create_hash(&je1, js1))
+      goto null_return;
   }
 
   if (!is_array || args[1]->null_value)
@@ -5557,7 +5560,7 @@ String* Item_func_json_array_intersect::val_str(String *str)
 
 error_return:
   if (je2.s.error)
-    report_json_error(js2, &je2, 1);
+    report_json_error(js2, &je2, swapped ? 0 : 1);
 null_return:
   null_value= 1;
   return NULL;
@@ -5580,13 +5583,26 @@ bool Item_func_json_array_intersect::prepare_json_and_create_hash(json_engine_t 
     init_alloc_root(PSI_NOT_INSTRUMENTED, &hash_root, 1024, 0, MYF(0));
   root_inited= true;
 
-  if (json_read_value(je1)
-     || !(is_array= (je1->value_type == JSON_VALUE_ARRAY)) ||
-      create_hash(je1, &items, item_hash_inited, &hash_root))
-    {
-      if (je1->s.error)
-        report_json_error(js, je1, 0);
-    }
+  if (json_read_value(je1))
+  {
+    report_json_error(js, je1, swapped);
+    return true;
+  }
+  if (!(is_array= (je1->value_type == JSON_VALUE_ARRAY)))
+  {
+    // TODO FIX message
+    my_error(ER_JSON_SYNTAX, MYF(0));
+  }
+
+  if (create_hash(je1, &items, item_hash_inited, &hash_root))
+  {
+    if (je1->s.error)
+      report_json_error_ex(js->ptr(), je1, func_name(), swapped,
+        Sql_condition::WARN_LEVEL_ERROR);
+    else
+      my_error(ER_OUT_OF_RESOURCES, MYF(0));
+    return true;
+  }
 
   return false;
 }
@@ -5600,6 +5616,7 @@ bool Item_func_json_array_intersect::fix_length_and_dec(THD *thd)
   {
     if (args[1]->const_item())
     {
+      swapped= true;
       std::swap(args[0], args[1]);
     }
     else

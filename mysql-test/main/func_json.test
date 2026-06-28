@@ -4181,6 +4181,7 @@ select json_array_intersect(@obj1, @obj2);
 --echo # Checking Syntax error for JSON_ARRAY_INTERSECT()
 SET @obj1= '[1, 2, 3, 3, 3.0, "abc", true, true, {"key1":"val1" ]';
 SET @obj2= '[3.0, 3, 5, "abc", "abc", true, {"key2":"val2"}, {"key1":"val1"}, {"key1":"val2"}]';
+--error ER_JSON_SYNTAX
 select json_array_intersect(@obj1, @obj2);
 
 --echo # Checking incorrect type for input
@@ -4189,9 +4190,13 @@ SET @arr1= '[ 1, 2, 3 ]';
 SET @num1= '2';
 SET @str1= '"abc"';
 SET @bool1= 'true';
+--error ER_JSON_SYNTAX
 select json_array_intersect(@obj1, @arr1);
+--error ER_JSON_SYNTAX
 select json_array_intersect(@arr1, @obj1);
+--error ER_JSON_SYNTAX
 select json_array_intersect(@arr1, @num1);
+--error ER_JSON_SYNTAX
 select json_array_intersect(@num1, @bool1);
 
 
@@ -4375,5 +4380,17 @@ SET @value= '
 }';
 
 SELECT JSON_SCHEMA_VALID(@schema, @value);
+
+--echo #
+--echo # MDEV-40185 JSON_ARRAY_INTERSECT error handing incorrect
+--echo #
+
+create table t (j text);
+insert into t values ('[1, 2, 3]'), ('[3, invalid]');
+
+SELECT JSON_ARRAY_INTERSECT(j, '[3, 4]') as j FROM t;
+SELECT JSON_ARRAY_INTERSECT('[3, 4]', j) as j FROM t;
+
+DROP TABLE t;
 
 --echo # End of 11.4 tests
