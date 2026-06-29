@@ -326,7 +326,7 @@ size_t my_charpos_mb(CHARSET_INFO *cs __attribute__((unused)),
     pos+= (mb_len= my_ismbchar(cs, pos, end)) ? mb_len : 1;
     length--;
   }
-  return (size_t) (length ? end+2-start : pos-start);
+  return (size_t) (length ? (end-start)+2 : pos-start);
 }
 
 
