@@ -5072,6 +5072,7 @@ bool Item_func_json_overlaps::fix_length_and_dec(THD *thd)
 
 bool Item_func_json_schema_valid::val_bool()
 {
+  THD *thd;
   json_engine_t ve;
   int is_valid= 1;
 
@@ -5095,6 +5096,9 @@ bool Item_func_json_schema_valid::val_bool()
 
   json_scan_start(&ve, val->charset(), (const uchar *) val->ptr(),
                   (const uchar *) val->end());
+  thd= current_thd;
+  ve.killed_ptr= (uint32_t *) &thd->killed;
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
 
   if (json_read_value(&ve))
     goto end;
@@ -5512,6 +5516,7 @@ error:
 
 String* Item_func_json_array_intersect::val_str(String *str)
 {
+  THD *thd;
   DBUG_ASSERT(fixed());
 
   json_engine_t je2, res_je, je1;
@@ -5544,6 +5549,8 @@ String* Item_func_json_array_intersect::val_str(String *str)
 
   json_scan_start(&je2, js2->charset(), (const uchar *) js2->ptr(),
                   (const uchar *) js2->ptr() + js2->length());
+  thd= current_thd;
+  je2.killed_ptr= (uint32_t *) &thd->killed;
 
   if (json_read_value(&je2))
     goto je2_error_return;
@@ -5561,6 +5568,7 @@ String* Item_func_json_array_intersect::val_str(String *str)
   {
     json_scan_start(&res_je, str->charset(), (const uchar *) str->ptr(),
                   (const uchar *) str->ptr() + str->length());
+    res_je.killed_ptr= (uint32_t *) &thd->killed;
     str= &tmp_js1;
     if (json_nice(&res_je, str, Item_func_json_format::LOOSE))
     {
@@ -5589,8 +5597,11 @@ null_return:
 
 bool Item_func_json_array_intersect::prepare_json_and_create_hash(json_engine_t *je1, String *js)
 {
+  THD *thd= current_thd;
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
   json_scan_start(je1, js->charset(), (const uchar *) js->ptr(),
                   (const uchar *) js->ptr() + js->length());
+  je1->killed_ptr= (uint32_t *) &thd->killed;
   /*
     Scan value uses the hash table to get the intersection of two arrays.
   */
@@ -5741,6 +5752,7 @@ error:
 
 String* Item_func_json_object_filter_keys::val_str(String *str)
 {
+  THD *thd;
   DBUG_ASSERT(fixed());
 
   json_engine_t je1, res_je;
@@ -5754,6 +5766,8 @@ String* Item_func_json_object_filter_keys::val_str(String *str)
 
   json_scan_start(&je1, js1->charset(),(const uchar *) js1->ptr(),
                   (const uchar *) js1->ptr() + js1->length());
+  thd= current_thd;
+  je1.killed_ptr= (uint32_t *) &thd->killed;
 
   if (json_read_value(&je1))
     goto je1_error_return;
@@ -5771,6 +5785,7 @@ String* Item_func_json_object_filter_keys::val_str(String *str)
    {
     json_scan_start(&res_je, str->charset(), (const uchar *) str->ptr(),
                   (const uchar *) str->ptr() + str->length());
+    res_je.killed_ptr= (uint32_t *) &thd->killed;
     str= &tmp_js1;
     if (json_nice(&res_je, str, Item_func_json_format::LOOSE))
     {
@@ -5905,6 +5920,7 @@ static bool convert_to_array(json_engine_t *je, String *str)
 
 String* Item_func_json_object_to_array::val_str(String *str)
 {
+  THD *thd;
   DBUG_ASSERT(fixed());
 
   json_engine_t je;
@@ -5918,6 +5934,9 @@ String* Item_func_json_object_to_array::val_str(String *str)
 
   json_scan_start(&je, js1->charset(),(const uchar *) js1->ptr(),
                   (const uchar *) js1->ptr() + js1->length());
+  thd= current_thd;
+  je.killed_ptr= (uint32_t *) &thd->killed;
+  JSON_DO_PAUSE_EXECUTION(thd, 0.0002);
 
   if (json_read_value(&je))
     goto error_return;
