@@ -301,7 +301,7 @@ int my_wildcmp_mb(CHARSET_INFO *cs,
 }
 
 
-size_t my_numchars_mb(CHARSET_INFO *cs __attribute__((unused)),
+size_t my_numchars_mb(CHARSET_INFO *cs,
 		      const char *pos, const char *end)
 {
   register size_t count= 0;
@@ -315,7 +315,7 @@ size_t my_numchars_mb(CHARSET_INFO *cs __attribute__((unused)),
 }
 
 
-size_t my_charpos_mb(CHARSET_INFO *cs __attribute__((unused)),
+size_t my_charpos_mb(CHARSET_INFO *cs,
 		     const char *pos, const char *end, size_t length)
 {
   const char *start= pos;
