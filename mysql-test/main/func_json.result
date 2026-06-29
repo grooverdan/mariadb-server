@@ -5383,10 +5383,7 @@ json_array_intersect(@obj1, @obj2)
 SET @obj1= '[1, 2, 3, 3, 3.0, "abc", true, true, {"key1":"val1" ]';
 SET @obj2= '[3.0, 3, 5, "abc", "abc", true, {"key2":"val2"}, {"key1":"val1"}, {"key1":"val2"}]';
 select json_array_intersect(@obj1, @obj2);
-json_array_intersect(@obj1, @obj2)
-[3.0, 3, "abc", true]
-Warnings:
-Warning	4038	Syntax error in JSON text in argument 1 to function 'json_array_intersect' at position 53
+ERROR HY000: Syntax error in JSON text in argument 1 to function 'json_array_intersect' at position 53
 # Checking incorrect type for input
 SET @obj1= '{"key1": "val1"}';
 SET @arr1= '[ 1, 2, 3 ]';
@@ -5394,17 +5391,13 @@ SET @num1= '2';
 SET @str1= '"abc"';
 SET @bool1= 'true';
 select json_array_intersect(@obj1, @arr1);
-json_array_intersect(@obj1, @arr1)
-NULL
+ERROR HY000: Syntax error in JSON text in argument 1 to function 'json_array_intersect' at position 1
 select json_array_intersect(@arr1, @obj1);
-json_array_intersect(@arr1, @obj1)
-NULL
+ERROR HY000: Syntax error in JSON text in argument 2 to function 'json_array_intersect' at position 1
 select json_array_intersect(@arr1, @num1);
-json_array_intersect(@arr1, @num1)
-NULL
+ERROR HY000: Syntax error in JSON text in argument 2 to function 'json_array_intersect' at position 1
 select json_array_intersect(@num1, @bool1);
-json_array_intersect(@num1, @bool1)
-NULL
+ERROR HY000: Syntax error in JSON text in argument 1 to function 'json_array_intersect' at position 1
 # JSON_OBJECT_FILTER_KEYS()
 SET @obj1= '{ "a": 1, "b": 2, "c": 3}';
 SET @obj2= '{"b" : 10, "c": 20, "d": 30}';
@@ -5428,16 +5421,13 @@ JSON_OBJECT_FILTER_KEYS(@obj1, @arr1)
 NULL
 # Incorrect type in input returns NULL
 SELECT JSON_OBJECT_FILTER_KEYS(@obj1, @obj1);
-JSON_OBJECT_FILTER_KEYS(@obj1, @obj1)
-NULL
+ERROR HY000: Syntax error in JSON text in argument 2 to function 'json_object_filter_keys' at position 1
 SELECT JSON_OBJECT_FILTER_KEYS(@arr1, @arr1);
-JSON_OBJECT_FILTER_KEYS(@arr1, @arr1)
-NULL
+ERROR HY000: Syntax error in JSON text in argument 1 to function 'json_object_filter_keys' at position 1
 SET @obj1= '{ "a": 1, "b": {"key1": {"key2":"val2"}}, "c": [1, 2, 3] }';
 SET @scalar1='2';
 SELECT JSON_OBJECT_FILTER_KEYS(@obj1, @scalar1);
-JSON_OBJECT_FILTER_KEYS(@obj1, @scalar1)
-NULL
+ERROR HY000: Syntax error in JSON text in argument 2 to function 'json_object_filter_keys' at position 1
 # Checking syntax error
 SET @obj1= '{ "a": 1, "b": 2, "c": 3}';
 SET @obj2= '{"b" : 10, "c": 20, "d"  30}';
@@ -5448,9 +5438,8 @@ Warnings:
 Warning	4038	Syntax error in JSON text in argument 1 to function 'json_keys' at position 25
 SET @obj1= '{ "a": 1, "b": {"key1": {"key2":"val2"}}, "c": [1, 2, 3] }';
 SET @arr2= '[ "key2", "key1", "b" ';
-SELECT JSON_OBJECT_FILTER_KEYS(@obj1, @arr1);
-JSON_OBJECT_FILTER_KEYS(@obj1, @arr1)
-NULL
+SELECT JSON_OBJECT_FILTER_KEYS(@obj1, @arr2);
+ERROR HY000: Unexpected end of JSON text in argument 2 to function 'json_object_filter_keys'
 # JSON_OBJECT_TO_ARRAY()
 SET @obj1= '{ "a": [1, 2, 3], "b": { "key1":"val1", "key2": {"key3":"val3"} }, "c": 3, "d" : 1, "e": "xyz", "f": true, "g" : null}';
 SELECT JSON_OBJECT_TO_ARRAY(@obj1);
@@ -5472,6 +5461,8 @@ SET @arr1= '[1, 2, 3]';
 SELECT JSON_OBJECT_TO_ARRAY(@arr1);
 JSON_OBJECT_TO_ARRAY(@arr1)
 NULL
+Warnings:
+Warning	4038	Syntax error in JSON text in argument 1 to function 'json_object_to_array' at position 1
 #
 # MDEV-31411: JSON_ARRAY_INTERSECT/JSON_OBJECT_FILTER_KEYS should fetch
 # data from a table similar to other JSON functions

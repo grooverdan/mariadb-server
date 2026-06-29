@@ -455,6 +455,9 @@ error:
   report_json_error_ex(js->ptr(), je, func_name(), n_param, \
       Sql_condition::WARN_LEVEL_WARN)
 
+#define report_json_error_level(js, je, n_param, level) \
+  report_json_error_ex(js->ptr(), je, func_name(), n_param, level)
+
 void report_json_error_ex(const char *js, json_engine_t *je,
                           const char *fname, int n_param,
                           Sql_condition::enum_warning_level lv)
@@ -5377,7 +5380,7 @@ static bool create_hash(json_engine_t *value, HASH *items, bool &item_hash_inite
       }
     }
   }
-  return false;
+  return value->s.error != 0;
 }
 
 
@@ -5415,12 +5418,13 @@ static my_bool restore_entry(void *element, void *arg)
   If the outermost layer of JSON is an array,
   the intersection of arrays is independent of order.
   Create a hash containing all elements in the array,
-  itterate over another array and add the common elements
+  iterate over another array and add the common elements
   to the result.
 
   RETURN
     FALSE  - if two array documents have intersection
     TRUE   - If two array documents do not have intersection
+             or an error.
 */
 bool Item_func_json_array_intersect::
      get_intersect_between_arrays(String *str, json_engine_t *value,
@@ -5439,13 +5443,18 @@ bool Item_func_json_array_intersect::
     DYNAMIC_STRING norm_val;
 
     if (json_read_value(value) ||
-        get_current_value(value, value_start, value_len) ||
-        init_dynamic_string(&norm_val, NULL, 0, 0))
+        get_current_value(value, value_start, value_len))
       goto error;
+    if (init_dynamic_string(&norm_val, NULL, 0, 0))
+    {
+      my_error(ER_OUT_OF_RESOURCES, MYF(0));
+      goto error;
+    }
 
     if (json_normalize(&norm_val, (const char*) value_start,
                          value_len, value->s.cs))
     {
+      value->s.error= JE_SYN; /* temp until json_normalize takes value arg */
       dynstr_free(&norm_val);
       goto error;
     }
@@ -5453,6 +5462,7 @@ bool Item_func_json_array_intersect::
     char *new_entry= (char*)malloc(norm_val.length+1);
     if (!new_entry)
     {
+      my_error(ER_OUT_OF_RESOURCES, MYF(0));
       dynstr_free(&norm_val);
       goto error;
     }
@@ -5476,6 +5486,7 @@ bool Item_func_json_array_intersect::
       temp_str.append(',');
       if (my_hash_delete(items, found) || my_hash_insert(seen, (const uchar *)found))
       {
+        my_error(ER_OUT_OF_RESOURCES, MYF(0));
         free(new_entry);
         goto error;
       }
@@ -5483,9 +5494,9 @@ bool Item_func_json_array_intersect::
     free(new_entry);
   }
 
-  res= false;
+  res= value->s.error != 0;
 
-  if (has_value)
+  if (has_value && !res)
   {
     temp_str.chop(); /* remove last comma because there are no values after that. */
     temp_str.append(']');
@@ -5521,7 +5532,8 @@ String* Item_func_json_array_intersect::val_str(String *str)
       free_root(&hash_root, MYF(0));
     root_inited= false;
     item_hash_inited= false;
-    prepare_json_and_create_hash(&je1, js1);
+    if (prepare_json_and_create_hash(&je1, js1))
+      goto null_return;
   }
 
   if (!is_array || args[1]->null_value)
@@ -5533,8 +5545,14 @@ String* Item_func_json_array_intersect::val_str(String *str)
   json_scan_start(&je2, js2->charset(), (const uchar *) js2->ptr(),
                   (const uchar *) js2->ptr() + js2->length());
 
-  if (json_read_value(&je2) || je2.value_type != JSON_VALUE_ARRAY)
-    goto error_return;
+  if (json_read_value(&je2))
+    goto je2_error_return;
+
+  if (je2.value_type != JSON_VALUE_ARRAY)
+  {
+    je2.s.error= JE_SYN;
+    goto je2_error_return;
+  }
 
   if (get_intersect_between_arrays(str, &je2, &items, &seen))
     goto error_return;
@@ -5545,7 +5563,11 @@ String* Item_func_json_array_intersect::val_str(String *str)
                   (const uchar *) str->ptr() + str->length());
     str= &tmp_js1;
     if (json_nice(&res_je, str, Item_func_json_format::LOOSE))
-      goto error_return;
+    {
+      /* technically an output rather than arg */
+      report_json_error(str, &res_je, 0);
+      goto null_return;
+    }
 
     null_value= 0;
     return str;
@@ -5557,7 +5579,9 @@ String* Item_func_json_array_intersect::val_str(String *str)
 
 error_return:
   if (je2.s.error)
-    report_json_error(js2, &je2, 1);
+je2_error_return:
+    report_json_error_level(js2, &je2, swapped ? 0 : 1,
+                            Sql_condition::WARN_LEVEL_ERROR);
 null_return:
   null_value= 1;
   return NULL;
@@ -5573,20 +5597,35 @@ bool Item_func_json_array_intersect::prepare_json_and_create_hash(json_engine_t 
 
   if (my_hash_init(PSI_INSTRUMENT_ME, &seen, je1->s.cs, 0, 0, 0,
                    get_key_name, NULL, 0))
+  {
+    my_error(ER_OUT_OF_RESOURCES, MYF(0));
     return true;
+  }
   seen_hash_inited= true;
 
   if (!root_inited)
     init_alloc_root(PSI_NOT_INSTRUMENTED, &hash_root, 1024, 0, MYF(0));
   root_inited= true;
 
-  if (json_read_value(je1)
-     || !(is_array= (je1->value_type == JSON_VALUE_ARRAY)) ||
-      create_hash(je1, &items, item_hash_inited, &hash_root))
-    {
-      if (je1->s.error)
-        report_json_error(js, je1, 0);
-    }
+  if (json_read_value(je1))
+    goto je_error;
+
+  if (!(is_array= (je1->value_type == JSON_VALUE_ARRAY)))
+  {
+    je1->s.error= JE_SYN;
+    goto je_error;
+  }
+
+  if (create_hash(je1, &items, item_hash_inited, &hash_root))
+  {
+    if (je1->s.error)
+je_error:
+      report_json_error_level(js, je1, swapped ? 1 : 0,
+                              Sql_condition::WARN_LEVEL_ERROR);
+    else
+      my_error(ER_OUT_OF_RESOURCES, MYF(0));
+    return true;
+  }
 
   return false;
 }
@@ -5600,6 +5639,7 @@ bool Item_func_json_array_intersect::fix_length_and_dec(THD *thd)
   {
     if (args[1]->const_item())
     {
+      swapped= true;
       std::swap(args[0], args[1]);
     }
     else
@@ -5613,6 +5653,7 @@ bool Item_func_json_array_intersect::fix_length_and_dec(THD *thd)
 
   if (js1 && prepare_json_and_create_hash(&je1, js1))
   {
+    null_value= 1;
     return TRUE;
   }
 
@@ -5685,7 +5726,7 @@ static bool filter_keys(json_engine_t *je1, String *str, HASH items)
     }
   }
 
-  res= false;
+  res= je1->s.error != 0;
 
   if (has_value)
   {
@@ -5714,11 +5755,17 @@ String* Item_func_json_object_filter_keys::val_str(String *str)
   json_scan_start(&je1, js1->charset(),(const uchar *) js1->ptr(),
                   (const uchar *) js1->ptr() + js1->length());
 
-  if (json_read_value(&je1) || je1.value_type != JSON_VALUE_OBJECT)
-    goto error_return;
+  if (json_read_value(&je1))
+    goto je1_error_return;
 
-  if(filter_keys(&je1, str, items))
-    goto null_return;
+  if (je1.value_type != JSON_VALUE_OBJECT)
+  {
+    je1.s.error= JE_SYN;
+    goto je1_error_return;
+  }
+
+  if (filter_keys(&je1, str, items))
+    goto error_return;
 
    if (str->length())
    {
@@ -5726,7 +5773,12 @@ String* Item_func_json_object_filter_keys::val_str(String *str)
                   (const uchar *) str->ptr() + str->length());
     str= &tmp_js1;
     if (json_nice(&res_je, str, Item_func_json_format::LOOSE))
-      goto error_return;
+    {
+      if (res_je.s.error)
+        report_json_error_level(str, &res_je, 1,
+                                Sql_condition::WARN_LEVEL_ERROR);
+      goto null_return;
+    }
 
     null_value= 0;
     return str;
@@ -5736,10 +5788,11 @@ String* Item_func_json_object_filter_keys::val_str(String *str)
     goto null_return;
   }
 
-
 error_return:
   if (je1.s.error)
-    report_json_error(js1, &je1, 0);
+je1_error_return:
+    report_json_error_level(js1, &je1, 0,
+                            Sql_condition::WARN_LEVEL_ERROR);
 null_return:
   null_value= 1;
   return NULL;
@@ -5763,11 +5816,22 @@ bool Item_func_json_object_filter_keys::fix_length_and_dec(THD *thd)
     init_alloc_root(PSI_NOT_INSTRUMENTED, &hash_root, 1024, 0, MYF(0));
   root_inited= true;
 
-  if (json_read_value(&je2) || je2.value_type != JSON_VALUE_ARRAY ||
-      create_hash(&je2, &items, hash_inited, &hash_root))
+  if (json_read_value(&je2))
+    goto je_error;
+  if (je2.value_type != JSON_VALUE_ARRAY)
+  {
+    je2.s.error= JE_SYN;
+    goto je_error;
+  }
+
+  if (create_hash(&je2, &items, hash_inited, &hash_root))
   {
     if (je2.s.error)
-      report_json_error(js2, &je2, 0);
+je_error:
+      report_json_error_level(js2, &je2, 1,
+                              Sql_condition::WARN_LEVEL_ERROR);
+    else
+      my_error(ER_OUT_OF_RESOURCES, MYF(0));
     null_value= 1;
     return FALSE;
   }
@@ -5858,7 +5922,10 @@ String* Item_func_json_object_to_array::val_str(String *str)
   if (json_read_value(&je))
     goto error_return;
   if (je.value_type != JSON_VALUE_OBJECT)
-    goto null_return;
+  {
+    je.s.error= JE_SYN;
+    goto error_return;
+  }
 
   if (convert_to_array(&je, str))
     goto error_return;

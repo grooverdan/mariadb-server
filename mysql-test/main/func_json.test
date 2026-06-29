@@ -4181,6 +4181,7 @@ select json_array_intersect(@obj1, @obj2);
 --echo # Checking Syntax error for JSON_ARRAY_INTERSECT()
 SET @obj1= '[1, 2, 3, 3, 3.0, "abc", true, true, {"key1":"val1" ]';
 SET @obj2= '[3.0, 3, 5, "abc", "abc", true, {"key2":"val2"}, {"key1":"val1"}, {"key1":"val2"}]';
+--error ER_JSON_SYNTAX
 select json_array_intersect(@obj1, @obj2);
 
 --echo # Checking incorrect type for input
@@ -4189,9 +4190,13 @@ SET @arr1= '[ 1, 2, 3 ]';
 SET @num1= '2';
 SET @str1= '"abc"';
 SET @bool1= 'true';
+--error ER_JSON_SYNTAX
 select json_array_intersect(@obj1, @arr1);
+--error ER_JSON_SYNTAX
 select json_array_intersect(@arr1, @obj1);
+--error ER_JSON_SYNTAX
 select json_array_intersect(@arr1, @num1);
+--error ER_JSON_SYNTAX
 select json_array_intersect(@num1, @bool1);
 
 
@@ -4215,11 +4220,14 @@ SELECT JSON_OBJECT_FILTER_KEYS(@obj1, @arr1);
 
 --echo # Incorrect type in input returns NULL
 
+--error ER_JSON_SYNTAX
 SELECT JSON_OBJECT_FILTER_KEYS(@obj1, @obj1);
+--error ER_JSON_SYNTAX
 SELECT JSON_OBJECT_FILTER_KEYS(@arr1, @arr1);
 
 SET @obj1= '{ "a": 1, "b": {"key1": {"key2":"val2"}}, "c": [1, 2, 3] }';
 SET @scalar1='2';
+--error ER_JSON_SYNTAX
 SELECT JSON_OBJECT_FILTER_KEYS(@obj1, @scalar1);
 
 --echo # Checking syntax error
@@ -4230,7 +4238,8 @@ SELECT JSON_OBJECT_FILTER_KEYS (@obj1, json_array_intersect(json_keys(@obj1), js
 
 SET @obj1= '{ "a": 1, "b": {"key1": {"key2":"val2"}}, "c": [1, 2, 3] }';
 SET @arr2= '[ "key2", "key1", "b" ';
-SELECT JSON_OBJECT_FILTER_KEYS(@obj1, @arr1);
+--error ER_JSON_EOS
+SELECT JSON_OBJECT_FILTER_KEYS(@obj1, @arr2);
 
 
 --echo # JSON_OBJECT_TO_ARRAY()
