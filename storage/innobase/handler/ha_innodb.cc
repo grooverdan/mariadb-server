@@ -4338,6 +4338,8 @@ innobase_end(handlerton*, ha_panic_function)
 		innodb_shutdown();
 		mysql_mutex_destroy(&log_requests.mutex);
 	}
+	else
+		buf_mem_pressure_shutdown();
 
 	DBUG_RETURN(0);
 }
@@ -17864,7 +17866,9 @@ func_exit:
 					   [FIL_PAGE_SPACE_ID]);
 	}
 	mtr.commit();
-	log_write_up_to(mtr.commit_lsn(), true);
+	if (lsn_t lsn = mtr.commit_lsn()) {
+		log_write_up_to(lsn, true);
+	}
 	goto func_exit;
 }
 #endif // UNIV_DEBUG

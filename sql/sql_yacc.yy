@@ -82,6 +82,7 @@
 #endif
 #if defined (__GNUC__) || defined (__clang__)
 #pragma GCC diagnostic ignored "-Wunused-label" /* yyexhaustedlab: */
+#pragma GCC diagnostic ignored "-Wunused-but-set-variable"
 #endif
 
 /* Stack size 28200 with clang for MYSQLparse() and ORAparse() */

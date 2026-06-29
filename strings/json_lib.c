@@ -1039,7 +1039,12 @@ int json_scan_next(json_engine_t *j)
   int t_next;
 
   get_first_nonspace(&j->s, &t_next, &j->sav_c_len);
-  return *j->killed_ptr || json_actions[j->state][t_next](j);
+  if (j->killed_ptr && *j->killed_ptr)
+  {
+    j->s.error= JE_KILLED;
+    return 1;
+  }
+  return json_actions[j->state][t_next](j);
 }
 
 
@@ -1576,8 +1581,8 @@ int json_find_path(json_engine_t *je,
             handle_match(je, p, p_cur_step, array_counters))
           goto exit;
       }
-      else
-        json_skip_array_item(je);
+      else if (json_skip_array_item(je))
+        goto exit;
       break;
     case JST_OBJ_END:
       do
