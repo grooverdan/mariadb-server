@@ -171,6 +171,7 @@ String *Item_func_geometry_from_json::val_str(String *str)
 
   json_scan_start(&je, js->charset(), (const uchar *) js->ptr(),
                   (const uchar *) js->end());
+  je.killed_ptr= (uint32_t *) &current_thd->killed;
 
   if ((null_value= !Geometry::create_from_json(&buffer, &je, options==1,  str)))
   {
