@@ -44,8 +44,26 @@ SET(CLIENT_PLUGIN_PVIO_NPIPE STATIC)
 SET(CLIENT_PLUGIN_PVIO_SHMEM STATIC)
 SET(CLIENT_PLUGIN_PVIO_SOCKET STATIC)
 
+# Connector/C consumes the FindZLIB-style variables directly.
+# Provide a shim.
+IF(BUILD_BUNDLED_ZLIB)
+  SET(ZLIB_FOUND TRUE)
+  SET(ZLIB_LIBRARY zlib)
+  SET(ZLIB_LIBRARIES zlib)
+  SET(ZLIB_INCLUDE_DIR ${ZLIB_BUNDLED_INCLUDE_DIR})
+ENDIF()
+
 MESSAGE("== Configuring MariaDB Connector/C")
 ADD_SUBMODULE_SUBDIRECTORY(libmariadb)
+
+IF(BUILD_BUNDLED_ZLIB)
+  # The shim above is only for Connector/C. Don't let it leak into later
+  # find_package(ZLIB)
+  FOREACH(v ZLIB_FOUND ZLIB_LIBRARY ZLIB_LIBRARIES ZLIB_INCLUDE_DIR)
+    UNSET(${v})
+    UNSET(${v} CACHE)
+  ENDFOREACH()
+ENDIF()
 
 IF(MSVC AND TARGET mariadb_obj AND TARGET mariadbclient)
   # With MSVC, do not produce LTCG-compiled static client libraries.
