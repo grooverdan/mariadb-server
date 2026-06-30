@@ -4534,7 +4534,9 @@ static void lock_rec_unlock(hash_cell_t &cell, lock_t *lock, ulint heap_no)
 
 /** Release locks to unmodified records on a clustered index page.
 @param  block      the block containing locked records
-@param  cell       lock_sys.rec_hash cell of lock
+@param  cell       lock_sys.rec_hash cell of lock; updated in place to the
+                   currently held cell, which a concurrent
+                   lock_sys_t::hash_table::resize() may have moved
 @param  lock       record lock
 @param  offsets    storage for rec_get_offsets()
 @tparam latch_type how the caller of the function latched lock_sys,
@@ -4542,7 +4544,7 @@ static void lock_rec_unlock(hash_cell_t &cell, lock_t *lock, ulint heap_no)
 @return true if the cell was latched successfully or if latch_type is GLOBAL,
         false otherwise */
 template <lock_sys_latch_type latch_type>
-bool lock_rec_unlock_unmodified(buf_block_t *block, hash_cell_t *cell,
+bool lock_rec_unlock_unmodified(buf_block_t *block, hash_cell_t *&cell,
                                 lock_t *lock, rec_offs *offsets)
 {
   DEBUG_SYNC_C("lock_rec_unlock_unmodified_start");
@@ -4716,7 +4718,12 @@ reiterate:
                                                      offsets))
                 all_released= false;
               else
-                latch->release();
+                /* lock_rec_unlock_unmodified() may have released and
+                re-acquired lock_sys, during which a concurrent
+                lock_sys_t::hash_table::resize() could move the cell. It
+                reports the currently held cell in cell, so release that
+                cell's latch rather than the now possibly stale latch. */
+                lock_sys_t::hash_table::latch(cell)->release();
             }
             else
               all_released= false;
