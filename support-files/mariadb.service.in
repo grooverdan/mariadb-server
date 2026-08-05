@@ -65,9 +65,15 @@ ProtectControlGroups=true
 # Prevent accessing /home, /root and /run/user
 ProtectHome=true
 
-# Use an environment file to pass variable _WSREP_NEW_CLUSTER.
-# Must not be writable by mysql user.
-EnvironmentFile=-@INSTALL_RUNDIR@/mariadb-wsrep-new-cluster
+# Perform automatic wsrep recovery. When server is started without wsrep,
+# galera_recovery simply returns an empty string. In any case, however,
+# the script is not expected to return with a non-zero status.
+# It is always safe to remove @INSTALL_RUNDIR@/wsrep-start-position
+# environment file.
+# Do not panic if galera_recovery script is not available. (MDEV-10538)
+ExecStartPre=/bin/sh -c "[ ! -e @bindir@/galera_recovery ] && VAR= || \
+ VAR=`@bindir@/galera_recovery`; [ $? -eq 0 ] \
+ && echo $VAR > @INSTALL_RUNDIR@/mariadb-wsrep-start-position || exit 1"
 
 # Needed to create system tables etc.
 # ExecStartPre=@scriptdir@/mariadb-install-db
@@ -76,18 +82,7 @@ EnvironmentFile=-@INSTALL_RUNDIR@/mariadb-wsrep-new-cluster
 # MYSQLD_OPTS here is for users to set in /etc/systemd/system/mariadb.service.d/MY_SPECIAL.conf
 # Use the [Service] section and Environment="MYSQLD_OPTS=...".
 # This isn't a replacement for my.cnf.
-# _WSREP_NEW_CLUSTER is for the exclusive use of the script galera_new_cluster
-#
-# Perform automatic wsrep recovery. When server is started without wsrep,
-# galera_recovery simply returns an empty string. In any case, however, it is
-# not expected to return a non-zero status.
-ExecStart=/bin/sh -c "set -f; [ ! -e @bindir@/galera_recovery ] && VAR= || \
- VAR=`@bindir@/galera_recovery`; [ $? -eq 0 ] || exit 1; \
- exec @sbindir@/mariadbd $MYSQLD_OPTS $_WSREP_NEW_CLUSTER $VAR"
-
-# have to set the name explicitly now, otherwise it'll be the
-# first name from ExecStart
-SyslogIdentifier=mariadbd
+ExecStart=@sbindir@/mariadbd $MYSQLD_OPTS
 
 @SYSTEMD_EXECSTARTPOST@
 

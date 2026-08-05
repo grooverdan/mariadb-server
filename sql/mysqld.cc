@@ -866,6 +866,10 @@ my_bool opt_expect_abort= 0, opt_bootstrap= 0;
 static my_bool opt_myisam_log;
 static int cleanup_done;
 static ulong opt_specialflag;
+#if defined(MARIADB_RUNDIR) && defined(__linux__)
+const char wsrep_new_cluster_file[]= MARIADB_RUNDIR "/mariadb-wsrep-new-cluster";
+const char wsrep_start_pos_file[]= MARIADB_RUNDIR "/mariadb-wsrep-start-position";
+#endif
 READ_ONLY_SYSVAR char *mysql_home_ptr;
 READ_ONLY_SYSVAR char *pidfile_name_ptr;
 #ifdef EMBEDDED_LIBRARY
@@ -6023,7 +6027,30 @@ int mysqld_main(int argc, char **argv)
 
 #ifdef WITH_WSREP
   wsrep_set_wsrep_on(nullptr);
-  if (WSREP_ON && wsrep_check_opts()) unireg_abort(1);
+  if (WSREP_ON)
+  {
+#if defined(MARIADB_RUNDIR) && defined(__linux__)
+    FILE *fp;
+    if (access(wsrep_new_cluster_file, F_OK) == 0)
+    {
+      wsrep_new_cluster= true;
+      (void) unlink(wsrep_new_cluster_file);
+    }
+    if ((fp= fopen(wsrep_start_pos_file, "r")) != NULL)
+    {
+      char start_pos_buf[FN_REFLEN];
+      if (fgets(start_pos_buf, sizeof(start_pos_buf), fp) != NULL)
+      {
+        my_free((void*) wsrep_start_position);
+        wsrep_start_position=
+          my_strdup(PSI_INSTRUMENT_ME, start_pos_buf, MYF(MY_WME));
+      }
+      fclose(fp);
+      (void) unlink(wsrep_start_pos_file);
+    }
+#endif
+    if (wsrep_check_opts()) unireg_abort(1);
+  }
 #endif
 
 #ifdef _WIN32
@@ -6223,6 +6250,11 @@ termination:
     and it must end gracefully before clean_up()
   */
   wait_for_signal_thread_to_end();
+#if defined(MARIADB_RUNDIR) && defined(__linux__)
+  /* to ensure that these files aren't created during execution */
+  unlink(wsrep_new_cluster_file);
+  unlink(wsrep_start_pos_file);
+#endif
 
   ha_pre_shutdown();
   clean_up(1);
