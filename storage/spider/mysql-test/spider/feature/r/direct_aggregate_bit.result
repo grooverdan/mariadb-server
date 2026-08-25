@@ -28,10 +28,16 @@ INSERT INTO t1 VALUES
 SELECT HEX(BIT_OR(val_bin)), HEX(BIT_AND(val_bin)), HEX(BIT_XOR(val_bin)) FROM t1_s;
 HEX(BIT_OR(val_bin))	HEX(BIT_AND(val_bin))	HEX(BIT_XOR(val_bin))
 FFFFFFFF	00000000	FFF0F0F0
+SHOW STATUS LIKE 'Spider_direct_aggregate';
+Variable_name	Value
+Spider_direct_aggregate	0
 # Integer mode
 SELECT BIT_OR(val_int), BIT_AND(val_int), BIT_XOR(val_int) FROM t1_s;
 BIT_OR(val_int)	BIT_AND(val_int)	BIT_XOR(val_int)
 18446744069414584575	0	18446744069414584575
+SHOW STATUS LIKE 'Spider_direct_aggregate';
+Variable_name	Value
+Spider_direct_aggregate	0
 # NULL handling - BIT_AND/OR/XOR must skip NULL rows
 INSERT INTO t1 VALUES (6, NULL, NULL);
 SELECT HEX(BIT_OR(val_bin)), HEX(BIT_AND(val_bin)), HEX(BIT_XOR(val_bin)) FROM t1_s;
@@ -72,10 +78,13 @@ FROM t2_s GROUP BY grp;
 grp	HEX(BIT_OR(val_bin))	HEX(BIT_AND(val_bin))	HEX(BIT_XOR(val_bin))	BIT_OR(val_int)	BIT_AND(val_int)	BIT_XOR(val_int)
 1	FF0F0F0F	0F000000	F00F0F0F	18378925161421209600	1080863910568919040	17298061250852290560
 2	00FF00FF	00000000	00FF00FF	71777214277877760	0	71777214277877760
+SHOW STATUS LIKE 'Spider_direct_aggregate';
+Variable_name	Value
+Spider_direct_aggregate	0
 DROP TABLE t2_s, t2;
 DROP TABLE t1_s, t1;
 DROP SERVER srv;
 for master_1
 for child2
 for child3
-# End of 13.1 tests
+# End of 13.2 tests

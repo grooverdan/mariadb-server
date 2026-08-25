@@ -35,9 +35,15 @@ INSERT INTO t1 VALUES
 
 --echo # Binary mode
 SELECT HEX(BIT_OR(val_bin)), HEX(BIT_AND(val_bin)), HEX(BIT_XOR(val_bin)) FROM t1_s;
+--disable_ps2_protocol
+SHOW STATUS LIKE 'Spider_direct_aggregate';
+--enable_ps2_protocol
 
 --echo # Integer mode
 SELECT BIT_OR(val_int), BIT_AND(val_int), BIT_XOR(val_int) FROM t1_s;
+--disable_ps2_protocol
+SHOW STATUS LIKE 'Spider_direct_aggregate';
+--enable_ps2_protocol
 
 --echo # NULL handling - BIT_AND/OR/XOR must skip NULL rows
 INSERT INTO t1 VALUES (6, NULL, NULL);
@@ -77,6 +83,9 @@ SELECT grp,
   HEX(BIT_OR(val_bin)), HEX(BIT_AND(val_bin)), HEX(BIT_XOR(val_bin)),
   BIT_OR(val_int), BIT_AND(val_int), BIT_XOR(val_int)
 FROM t2_s GROUP BY grp;
+--disable_ps2_protocol
+SHOW STATUS LIKE 'Spider_direct_aggregate';
+--enable_ps2_protocol
 
 DROP TABLE t2_s, t2;
 
@@ -89,4 +98,4 @@ DROP SERVER srv;
 --enable_result_log
 --enable_query_log
 
---echo # End of 13.1 tests
+--echo # End of 13.2 tests
